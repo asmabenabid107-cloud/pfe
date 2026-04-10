@@ -1,0 +1,29 @@
+# Secrets
+**/.env
+**/.env.*
+!**/.env.example
+!**/.env.sample
+
+# Node / frontend
+**/node_modules/
+**/dist/
+**/dist-ssr/
+**/*.local
+
+# Python / backend
+**/__pycache__/
+**/*.py[cod]
+**/.pytest_cache/
+**/.mypy_cache/
+**/.ruff_cache/
+**/.venv/
+**/venv/
+
+# Flutter / Dart
+**/.dart_tool/
+**/.flutter-plugins-dependencies
+**/build/
+
+# Editors / OS
+**/.idea/
+**/.DS_Store
