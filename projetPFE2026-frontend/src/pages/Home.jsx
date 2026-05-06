@@ -138,7 +138,7 @@ export default function Home() {
             </div>
 
             <div className="heroButtons">
-              <button className="btnPrimary big" onClick={() => navigate("/expediteur/register")}>
+              <button className="btnPrimary big" onClick={() => navigate("/expediteur/login")}>
                 Espace Expéditeur
               </button>
               <button className="btnGhost big" onClick={() => navigate("/admin/login")}>

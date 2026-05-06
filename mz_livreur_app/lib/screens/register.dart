@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
+
 import '../core/api.dart';
 import '../widgets/global_theme_toggle.dart';
 
 class RegisterScreen extends StatefulWidget {
   const RegisterScreen({super.key});
+
   @override
   State<RegisterScreen> createState() => _RegisterScreenState();
 }
@@ -36,7 +38,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
     super.dispose();
   }
 
-  // ---- Phone formatting (same feel as your web)
   void _formatPhoneLive() {
     final raw = phone.text;
 
@@ -56,27 +57,33 @@ class _RegisterScreenState extends State<RegisterScreen> {
   String _fmtLocal(String local) {
     if (local.isEmpty) return "";
     if (local.length <= 2) return local;
-    if (local.length <= 5)
+    if (local.length <= 5) {
       return "${local.substring(0, 2)} ${local.substring(2)}";
+    }
+
     final a = local.substring(0, 2);
     final b = local.substring(2, 5);
     final c = local.substring(5);
     return "$a $b $c";
   }
 
-  void _setPhone(String v) {
-    if (phone.text == v) return;
+  void _setPhone(String value) {
+    if (phone.text == value) return;
     phone.value = TextEditingValue(
-      text: v,
-      selection: TextSelection.collapsed(offset: v.length),
+      text: value,
+      selection: TextSelection.collapsed(offset: value.length),
     );
   }
 
-  String _cleanPhone(String v) => v.replaceAll(" ", "");
+  String _cleanPhone(String value) => value.replaceAll(" ", "");
 
-  bool _validPhone(String v) {
-    final clean = _cleanPhone(v);
+  bool _validPhone(String value) {
+    final clean = _cleanPhone(value);
     return RegExp(r'^\+216\d{8}$').hasMatch(clean);
+  }
+
+  bool _validPassword(String value) {
+    return RegExp(r'^[A-Za-z]{6,}$').hasMatch(value.trim());
   }
 
   Future<void> submit() async {
@@ -94,7 +101,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
           "full_name": name.text.trim(),
           "email": email.text.trim(),
           "phone": _cleanPhone(phone.text),
-          "password": password.text,
+          "password": password.text.trim(),
         },
         withAuth: false,
       );
@@ -105,19 +112,27 @@ class _RegisterScreenState extends State<RegisterScreen> {
         context,
         "/login",
         arguments:
-            "Inscription reçue. Attends la confirmation de l’admin. Un email sera envoyé après validation.",
+            "Inscription recue. Attends la confirmation de l admin. Un email sera envoye apres validation.",
       );
     } on ApiException catch (e) {
       setState(() => msg = e.message);
     } finally {
-      if (mounted) setState(() => loading = false);
+      if (mounted) {
+        setState(() => loading = false);
+      }
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    final w = MediaQuery.of(context).size.width;
-    final maxW = w > 520 ? 520.0 : w;
+    final width = MediaQuery.of(context).size.width;
+    final maxWidth = width > 520 ? 520.0 : width;
+    final theme = Theme.of(context);
+    final isLight = theme.brightness == Brightness.light;
+    final headerTitleColor = isLight ? const Color(0xFF162033) : Colors.white;
+    final headerBodyColor = isLight
+        ? const Color(0xCC162033)
+        : Colors.white.withValues(alpha: 0.78);
 
     return Scaffold(
       appBar: AppBar(
@@ -131,53 +146,63 @@ class _RegisterScreenState extends State<RegisterScreen> {
         child: Align(
           alignment: Alignment.topCenter,
           child: SizedBox(
-            width: maxW,
+            width: maxWidth,
             child: SingleChildScrollView(
               padding: const EdgeInsets.fromLTRB(16, 18, 16, 20),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  // Header (visual difference guaranteed)
                   Container(
                     padding: const EdgeInsets.all(16),
                     decoration: BoxDecoration(
                       borderRadius: BorderRadius.circular(18),
-                      border: Border.all(color: const Color(0x24FFFFFF)),
-                      gradient: const LinearGradient(
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                        colors: [Color(0xFF0B1430), Color(0xFF070B14)],
+                      border: Border.all(
+                        color: isLight
+                            ? const Color(0xFFE1E6F0)
+                            : const Color(0x24FFFFFF),
                       ),
+                      color: isLight ? Colors.white : null,
+                      gradient: isLight
+                          ? null
+                          : const LinearGradient(
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                              colors: [Color(0xFF0B1430), Color(0xFF070B14)],
+                            ),
+                      boxShadow: isLight
+                          ? const [
+                              BoxShadow(
+                                color: Color(0x14243E62),
+                                blurRadius: 24,
+                                offset: Offset(0, 12),
+                              ),
+                            ]
+                          : null,
                     ),
-                    child: const Column(
+                    child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          "Créer un compte",
+                          "Creer un compte",
                           style: TextStyle(
-                            color: Colors.white,
+                            color: headerTitleColor,
                             fontSize: 20,
                             fontWeight: FontWeight.w900,
                           ),
                         ),
-                        SizedBox(height: 8),
-                        Opacity(
-                          opacity: 0.78,
-                          child: Text(
-                            "Le compte doit être approuvé par l’admin avant accès au dashboard.",
-                            style: TextStyle(
-                              color: Colors.white,
-                              height: 1.5,
-                              fontWeight: FontWeight.w600,
-                            ),
+                        const SizedBox(height: 8),
+                        Text(
+                          "Le compte doit etre approuve par l admin avant acces au dashboard.",
+                          style: TextStyle(
+                            color: headerBodyColor,
+                            height: 1.5,
+                            fontWeight: FontWeight.w600,
                           ),
                         ),
                       ],
                     ),
                   ),
-
                   const SizedBox(height: 14),
-
                   Card(
                     child: Padding(
                       padding: const EdgeInsets.all(16),
@@ -194,14 +219,13 @@ class _RegisterScreenState extends State<RegisterScreen> {
                                 labelText: "Nom complet",
                                 prefixIcon: Icon(Icons.person_outline),
                               ),
-                              validator: (v) {
-                                final s = (v ?? "").trim();
-                                if (s.length < 2) return "Nom invalide";
+                              validator: (value) {
+                                final text = (value ?? "").trim();
+                                if (text.length < 2) return "Nom invalide";
                                 return null;
                               },
                             ),
                             const SizedBox(height: 12),
-
                             TextFormField(
                               controller: email,
                               enabled: !loading,
@@ -211,51 +235,50 @@ class _RegisterScreenState extends State<RegisterScreen> {
                                 labelText: "Email",
                                 prefixIcon: Icon(Icons.alternate_email),
                               ),
-                              validator: (v) {
-                                final s = (v ?? "").trim();
-                                if (!s.contains("@") || !s.contains("."))
+                              validator: (value) {
+                                final text = (value ?? "").trim();
+                                if (!text.contains("@") || !text.contains(".")) {
                                   return "Email invalide";
+                                }
                                 return null;
                               },
                             ),
                             const SizedBox(height: 12),
-
                             TextFormField(
                               controller: phone,
                               enabled: !loading,
                               keyboardType: TextInputType.phone,
                               textInputAction: TextInputAction.next,
                               decoration: const InputDecoration(
-                                labelText: "Téléphone",
+                                labelText: "Telephone",
                                 hintText: "+216 12 345 678",
                                 prefixIcon: Icon(Icons.phone_outlined),
                               ),
-                              validator: (v) {
-                                final s = (v ?? "").trim();
-                                if (!_validPhone(s))
-                                  return "Téléphone invalide (+216 + 8 chiffres)";
+                              validator: (value) {
+                                final text = (value ?? "").trim();
+                                if (!_validPhone(text)) {
+                                  return "Telephone invalide (+216 + 8 chiffres)";
+                                }
                                 return null;
                               },
                             ),
                             const SizedBox(height: 12),
-
                             TextFormField(
                               controller: password,
                               enabled: !loading,
                               obscureText: !showPassword,
                               textInputAction: TextInputAction.done,
-                              onFieldSubmitted: (_) =>
-                                  loading ? null : submit(),
+                              onFieldSubmitted: (_) => loading ? null : submit(),
                               decoration: InputDecoration(
                                 labelText: "Mot de passe",
-                                hintText: "Minimum 6 caractères",
+                                hintText: "Minimum 6 lettres",
                                 prefixIcon: const Icon(Icons.lock_outline),
                                 suffixIcon: IconButton(
                                   onPressed: loading
                                       ? null
                                       : () => setState(
-                                          () => showPassword = !showPassword,
-                                        ),
+                                            () => showPassword = !showPassword,
+                                          ),
                                   icon: Icon(
                                     showPassword
                                         ? Icons.visibility_off
@@ -263,15 +286,15 @@ class _RegisterScreenState extends State<RegisterScreen> {
                                   ),
                                 ),
                               ),
-                              validator: (v) {
-                                if ((v ?? "").length < 6)
-                                  return "Minimum 6 caractères";
+                              validator: (value) {
+                                final text = value ?? "";
+                                if (!_validPassword(text)) {
+                                  return "Le mot de passe doit contenir au moins 6 lettres";
+                                }
                                 return null;
                               },
                             ),
-
                             const SizedBox(height: 14),
-
                             if (msg.isNotEmpty)
                               Container(
                                 padding: const EdgeInsets.all(12),
@@ -289,9 +312,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                                   ),
                                 ),
                               ),
-
                             if (msg.isNotEmpty) const SizedBox(height: 12),
-
                             SizedBox(
                               height: 48,
                               child: FilledButton(
@@ -309,36 +330,32 @@ class _RegisterScreenState extends State<RegisterScreen> {
                                       ),
                                     if (loading) const SizedBox(width: 12),
                                     Text(
-                                      loading ? "Création..." : "Créer compte",
+                                      loading ? "Creation..." : "Creer compte",
                                     ),
                                   ],
                                 ),
                               ),
                             ),
-
                             const SizedBox(height: 10),
-
                             OutlinedButton(
                               onPressed: loading
                                   ? null
                                   : () => Navigator.pushReplacementNamed(
-                                      context,
-                                      "/login",
-                                    ),
-                              child: const Text("J’ai déjà un compte"),
+                                        context,
+                                        "/login",
+                                      ),
+                              child: const Text("J ai deja un compte"),
                             ),
                           ],
                         ),
                       ),
                     ),
                   ),
-
                   const SizedBox(height: 12),
-
                   const Opacity(
                     opacity: 0.7,
                     child: Text(
-                      "Après validation admin, un email sera envoyé puis connexion possible.",
+                      "Apres validation admin, un email sera envoye puis connexion possible.",
                       textAlign: TextAlign.center,
                       style: TextStyle(
                         height: 1.5,
@@ -355,4 +372,3 @@ class _RegisterScreenState extends State<RegisterScreen> {
     );
   }
 }
-

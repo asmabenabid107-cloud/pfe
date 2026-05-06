@@ -20,9 +20,32 @@ class Colis(Base):
     prix = Column(Float, nullable=False)
     prix_free = Column(Float, nullable=True)
     produits = Column(JSON, nullable=True)
+    ouvrir_colis = Column(String(10), nullable=False, default="non")
+    destination_label = Column(String(120), nullable=True)
+    barcode_value = Column(String(40), nullable=True)
+    tracking_stage = Column(String(40), nullable=False, default="pending_pickup")
+    picked_up_at = Column(DateTime, nullable=True)
+    picked_up_by_courier_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    warehouse_received_at = Column(DateTime, nullable=True)
+    warehouse_received_by_courier_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    out_for_delivery_at = Column(DateTime, nullable=True)
+    out_for_delivery_by_courier_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    delivery_issue_count = Column(Integer, nullable=False, default=0)
+    last_delivery_issue_at = Column(DateTime, nullable=True)
+    last_delivery_issue_reason = Column(String(500), nullable=True)
+    returned_at = Column(DateTime, nullable=True)
+    delivered_at = Column(DateTime, nullable=True)
+    delivered_by_courier_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     admin_note = Column(String, nullable=True)
+    admin_note_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     shipper_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-    shipper = relationship("User", back_populates="colis")
+    shipper = relationship("User", back_populates="colis", foreign_keys=[shipper_id])
+    history = relationship(
+        "ColisEvent",
+        back_populates="colis",
+        cascade="all, delete-orphan",
+        order_by="ColisEvent.event_at",
+    )

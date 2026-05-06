@@ -363,6 +363,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
                           subtitle: statusLabel,
                           onTap: () => Navigator.pushNamed(context, "/conges"),
                         ),
+                        _QuickCard(
+                          icon: Icons.qr_code_scanner_rounded,
+                          iconColor: const Color(0xFF9B87F5),
+                          title: "Scanner colis",
+                          subtitle: "En transit, livre, a relivrer ou retour",
+                          onTap: () => Navigator.pushNamed(context, "/scan"),
+                        ),
                       ],
                     ),
                     const SizedBox(height: 18),

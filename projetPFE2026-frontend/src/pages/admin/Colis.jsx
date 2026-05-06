@@ -1,9 +1,18 @@
 import { useEffect, useState } from "react";
 import { api } from "../../api/client.js";
+import {
+  adminNoteLabel,
+  isApprovedAdminNote,
+  isRejectedAdminNote,
+} from "../../constants/adminDecision.js";
+import AdminColisHistoryPanel from "./AdminColisHistoryPanel.jsx";
 
 const STATUS_STYLES = {
   en_attente: { label: "En attente", color: "var(--warning)", bg: "rgba(245,158,11,0.15)", border: "rgba(245,158,11,0.35)" },
   en_transit: { label: "En transit", color: "var(--accent-soft)", bg: "rgba(110,168,255,0.15)", border: "rgba(110,168,255,0.35)" },
+  a_relivrer: { label: "A relivrer", color: "#f97316", bg: "rgba(249,115,22,0.15)", border: "rgba(249,115,22,0.35)" },
+  livre: { label: "Livre", color: "var(--success)", bg: "rgba(44,203,118,0.15)", border: "rgba(44,203,118,0.35)" },
+  annule: { label: "Annule", color: "var(--danger)", bg: "rgba(255,95,95,0.15)", border: "rgba(255,95,95,0.35)" },
   livré: { label: "Livré", color: "var(--success)", bg: "rgba(44,203,118,0.15)", border: "rgba(44,203,118,0.35)" },
   annulé: { label: "Annulé", color: "var(--danger)", bg: "rgba(255,95,95,0.15)", border: "rgba(255,95,95,0.35)" },
   retour: { label: "Retour", color: "var(--violet)", bg: "rgba(167,139,250,0.15)", border: "rgba(167,139,250,0.35)" },
@@ -50,7 +59,7 @@ export default function AdminColis() {
     setActionLoading(id + "_approve");
     try {
       await api.post(`/admin/colis/${id}/approve`);
-      setColisList((prev) => prev.map((c) => (c.id === id ? { ...c, admin_note: "accepté" } : c)));
+      await loadColis();
       setExpanded(null);
       setActiveTab("confirmes");
       showToast(`Colis ${numero} confirmé`);
@@ -65,7 +74,7 @@ export default function AdminColis() {
     setActionLoading(id + "_reject");
     try {
       await api.post(`/admin/colis/${id}/reject`);
-      setColisList((prev) => prev.map((c) => (c.id === id ? { ...c, statut: "annulé", admin_note: "refusé" } : c)));
+      await loadColis();
       setExpanded(null);
       setActiveTab("refuses");
       showToast(`Colis ${numero} refusé`, "error");
@@ -82,8 +91,8 @@ export default function AdminColis() {
     let matchTab = false;
     if (activeTab === "all") matchTab = true;
     if (activeTab === "pending") matchTab = c.statut === "en_attente" && !c.admin_note;
-    if (activeTab === "confirmes") matchTab = c.admin_note === "accepté";
-    if (activeTab === "refuses") matchTab = c.admin_note === "refusé";
+    if (activeTab === "confirmes") matchTab = isApprovedAdminNote(c.admin_note);
+    if (activeTab === "refuses") matchTab = isRejectedAdminNote(c.admin_note);
 
     const s = search.toLowerCase();
     const matchSearch =
@@ -98,8 +107,8 @@ export default function AdminColis() {
   const countBy = (key) => {
     if (key === "all") return colisList.length;
     if (key === "pending") return colisList.filter((c) => c.statut === "en_attente" && !c.admin_note).length;
-    if (key === "confirmes") return colisList.filter((c) => c.admin_note === "accepté").length;
-    if (key === "refuses") return colisList.filter((c) => c.admin_note === "refusé").length;
+    if (key === "confirmes") return colisList.filter((c) => isApprovedAdminNote(c.admin_note)).length;
+    if (key === "refuses") return colisList.filter((c) => isRejectedAdminNote(c.admin_note)).length;
     return 0;
   };
 
@@ -336,19 +345,17 @@ export default function AdminColis() {
                         marginLeft: "auto",
                         fontSize: "0.78rem",
                         fontWeight: 700,
-                        color: colis.admin_note === "accepté" ? "#2ccb76" : "#ff5f5f",
+                        color: isApprovedAdminNote(colis.admin_note) ? "#2ccb76" : "#ff5f5f",
                       }}
                     >
-                      {colis.admin_note}
+                      {adminNoteLabel(colis.admin_note)}
                     </div>
                   )}
                 </div>
 
                 {isOpen && (
                   <div style={{ borderTop: "1px solid var(--border-subtle)", padding: "16px 20px", background: "var(--surface-inset-strong)" }}>
-                    <div style={{ opacity: 0.85, fontSize: "0.9rem" }}>
-                      Poids: {colis.poids} kg | Prix: {colis.prix} DT
-                    </div>
+                    <AdminColisHistoryPanel colis={colis} />
                   </div>
                 )}
               </div>

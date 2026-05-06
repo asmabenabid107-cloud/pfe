@@ -22,12 +22,33 @@ function getTodayDateValue() {
 
 const TODAY_DATE = getTodayDateValue();
 
+function formatContractDateForMessage(value) {
+  if (!value) return "";
+  const parsed = new Date(`${value}T00:00:00`);
+  if (Number.isNaN(parsed.getTime())) return value;
+
+  return parsed.toLocaleDateString("fr-TN", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  });
+}
+
+function normalizeSearchValue(value) {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim();
+}
+
 export default function Livreurs() {
   const navigate = useNavigate();
 
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [msg, setMsg] = useState("");
+  const [search, setSearch] = useState("");
   const [approvalTarget, setApprovalTarget] = useState(null);
   const [assignedRegion, setAssignedRegion] = useState(REGION_OPTIONS[0]);
   const [contractEndDate, setContractEndDate] = useState("");
@@ -68,6 +89,14 @@ export default function Livreurs() {
       return;
     }
 
+    const confirmationMessage =
+      `Confirmer le livreur ${approvalTarget.name} ?\n\n` +
+      `Region : ${assignedRegion}\n` +
+      `Fin de contrat : ${formatContractDateForMessage(contractEndDate)}\n\n` +
+      "Cette date ne pourra plus etre modifiee apres validation.";
+
+    if (!confirm(confirmationMessage)) return;
+
     setMsg("");
     setSavingApproval(true);
     try {
@@ -99,6 +128,14 @@ export default function Livreurs() {
   useEffect(() => {
     load();
   }, []);
+
+  const normalizedSearch = normalizeSearchValue(search);
+  const filteredItems = items.filter((courier) => {
+    if (!normalizedSearch) return true;
+    return [courier.name, courier.email, courier.phone].some((value) =>
+      normalizeSearchValue(value).includes(normalizedSearch),
+    );
+  });
 
   return (
     <div style={{ padding: 18 }}>
@@ -162,6 +199,37 @@ export default function Livreurs() {
         </div>
       </div>
 
+      <div
+        style={{
+          marginTop: 12,
+          display: "flex",
+          gap: 10,
+          flexWrap: "wrap",
+          alignItems: "center",
+        }}
+      >
+        <input
+          value={search}
+          onChange={(event) => setSearch(event.target.value)}
+          placeholder="Rechercher par email ou numero..."
+          style={{ ...selectStyle, flex: "1 1 280px", minWidth: 220 }}
+        />
+
+        <div
+          style={{
+            padding: "12px 14px",
+            borderRadius: 12,
+            border: "1px solid var(--border-soft)",
+            background: "var(--surface-card)",
+            color: "var(--text-secondary)",
+            fontSize: 12,
+            minWidth: 180,
+          }}
+        >
+          {filteredItems.length} demande(s)
+        </div>
+      </div>
+
       {msg && (
         <div
           style={{
@@ -212,9 +280,21 @@ export default function Livreurs() {
           >
             Aucune demande en attente.
           </div>
+        ) : filteredItems.length === 0 ? (
+          <div
+            style={{
+              padding: 16,
+              borderRadius: 18,
+              border: "1px solid var(--border-soft)",
+              background: "var(--surface-panel-soft)",
+              opacity: 0.9,
+            }}
+          >
+            Aucune demande ne correspond a cette recherche.
+          </div>
         ) : (
           <div style={{ display: "grid", gap: 12 }}>
-            {items.map((u) => (
+            {filteredItems.map((u) => (
               <div
                 key={u.id}
                 style={{
@@ -324,7 +404,7 @@ export default function Livreurs() {
             <div style={{ fontSize: 20, fontWeight: 900 }}>Validation du livreur</div>
             <div style={{ marginTop: 6, opacity: 0.74, fontSize: 13 }}>
               Choisis la region et la date de fin de contrat de <strong>{approvalTarget.name}</strong>.
-              Le statut sera mis a <strong>actif</strong> jusqu'a l'expiration du contrat.
+              Le statut sera mis a <strong>actif</strong> jusqu'a la fin du contrat.
             </div>
 
             <div style={{ marginTop: 16, display: "grid", gap: 14 }}>
@@ -353,6 +433,22 @@ export default function Livreurs() {
                   style={selectStyle}
                 />
               </div>
+            </div>
+
+            <div
+              style={{
+                marginTop: 14,
+                padding: "12px 14px",
+                borderRadius: 14,
+                border: "1px solid var(--warning-border)",
+                background: "var(--warning-bg)",
+                color: "var(--text-primary)",
+                fontSize: 12.5,
+                lineHeight: 1.55,
+              }}
+            >
+              Apres confirmation, la date de fin de contrat sera verrouillee. Quand cette date sera atteinte,
+              le statut du livreur passera automatiquement a <strong>Contrat termine</strong>.
             </div>
 
             <div style={{ display: "flex", gap: 10, marginTop: 18, justifyContent: "flex-end" }}>

@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_db, require_admin
-from app.core.courier_state import set_manual_courier_state, sync_courier_state
+from app.core.courier_state import is_contract_ended, set_manual_courier_state, sync_courier_state
 from app.core.email_service import send_courier_approved_email
 from app.models.user import User
 from app.schemas.user import CourierAdminUpdateRequest, CourierApproveRequest, UserOut
@@ -112,11 +112,17 @@ def update_courier_admin_details(
         courier.assigned_region = region
 
     if payload.contract_end_date is not None:
+        _validate_contract_end_date(payload.contract_end_date)
         courier.contract_end_date = payload.contract_end_date
 
     if payload.courier_status is not None:
         if payload.courier_status == "active" and not courier.assigned_region:
             raise HTTPException(status_code=422, detail="Une region doit etre assignee avant activation")
+        if payload.courier_status != "contract_ended" and is_contract_ended(courier):
+            raise HTTPException(
+                status_code=422,
+                detail="Choisis une nouvelle date de fin de contrat future pour renouveler le contrat",
+            )
         set_manual_courier_state(courier, payload.courier_status)
 
     sync_courier_state(db, courier)

@@ -34,6 +34,7 @@ class Api {
     // Téléphone Android réel:
     // بدّل 192.168.1.37 بـ IP متاع الـ PC متاعك على نفس الـ Wi-Fi
     return 'http://10.0.2.2:8000';
+    //return 'http://192.168.1.14:8000';
   }
 
   static Uri _u(String path) {

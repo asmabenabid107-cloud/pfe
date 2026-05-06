@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import ThemeToggleButton from "../../components/ThemeToggleButton.jsx";
 
@@ -71,6 +71,28 @@ function IconGlyph({ kind }) {
     );
   }
 
+  if (kind === "vehicles") {
+    return (
+      <svg {...commonProps}>
+        <path d="M3 11h12l3 3v4H3z" />
+        <path d="M6 11V8h6" />
+        <circle cx="8" cy="18" r="2" />
+        <circle cx="16" cy="18" r="2" />
+      </svg>
+    );
+  }
+
+  if (kind === "map") {
+    return (
+      <svg {...commonProps}>
+        <path d="M9 4 4 6v14l5-2 6 2 5-2V4l-5 2-6-2Z" />
+        <path d="m9 4 6 2" />
+        <path d="M9 4v14" />
+        <path d="M15 6v14" />
+      </svg>
+    );
+  }
+
   return (
     <svg {...commonProps}>
       <path d="M4 6h11l2 3h3v9H4z" />
@@ -116,12 +138,7 @@ function PrimaryNavItem({ to, label, kind, tint }) {
 
 function MenuGroup({ title, active, items, accent, kind }) {
   const [open, setOpen] = useState(active);
-
-  useEffect(() => {
-    if (active) {
-      setOpen(true);
-    }
-  }, [active]);
+  const expanded = active || open;
 
   return (
     <div>
@@ -157,7 +174,7 @@ function MenuGroup({ title, active, items, accent, kind }) {
             fontSize: "0.72rem",
             opacity: 0.7,
             transition: "transform 0.2s",
-            transform: open ? "rotate(180deg)" : "rotate(0deg)",
+            transform: expanded ? "rotate(180deg)" : "rotate(0deg)",
             display: "inline-block",
           }}
         >
@@ -165,7 +182,7 @@ function MenuGroup({ title, active, items, accent, kind }) {
         </span>
       </button>
 
-      {open && (
+      {expanded && (
         <div
           style={{
             marginTop: 4,
@@ -207,6 +224,8 @@ export default function AdminLayout() {
 
   const colisActive = location.pathname.startsWith("/admin/colis");
   const livreursActive = location.pathname.startsWith("/admin/livreurs");
+  const planningActive = location.pathname.startsWith("/admin/planification");
+  const vehiclesActive = location.pathname.startsWith("/admin/vehicules");
 
   function logout() {
     localStorage.removeItem("admin_access_token");
@@ -290,6 +309,13 @@ export default function AdminLayout() {
             tint="#ffd36b"
           />
 
+          <PrimaryNavItem
+            to="/admin/planification"
+            label="Planification"
+            kind="map"
+            tint={planningActive ? "#6ee7b7" : "#8de7cf"}
+          />
+
           <MenuGroup
             title="Livreurs"
             active={livreursActive}
@@ -338,6 +364,13 @@ export default function AdminLayout() {
                 color: "var(--danger)",
               },
             ]}
+          />
+
+          <PrimaryNavItem
+            to="/admin/vehicules"
+            label="Vehicules"
+            kind="vehicles"
+            tint={vehiclesActive ? "#ff9966" : "#ffb483"}
           />
         </nav>
 

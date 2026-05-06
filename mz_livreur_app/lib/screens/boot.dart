@@ -11,6 +11,8 @@ class BootScreen extends StatefulWidget {
 }
 
 class _BootScreenState extends State<BootScreen> {
+  bool get _isProtectedInitialRoute => widget.initialRoute.startsWith('/scan');
+
   @override
   void initState() {
     super.initState();
@@ -29,6 +31,16 @@ class _BootScreenState extends State<BootScreen> {
 
     final loggedIn = token != null && token.trim().isNotEmpty;
     if (!loggedIn) {
+      if (_isProtectedInitialRoute) {
+        Navigator.pushNamedAndRemoveUntil(
+          context,
+          "/login",
+          (_) => false,
+          arguments: "Connecte-toi pour ouvrir le QR livreur.",
+        );
+        return;
+      }
+
       Navigator.pushNamedAndRemoveUntil(
         context,
         widget.initialRoute,
@@ -40,7 +52,11 @@ class _BootScreenState extends State<BootScreen> {
     try {
       await Api.getJson("/auth/me", withAuth: true);
       if (!mounted) return;
-      Navigator.pushNamedAndRemoveUntil(context, "/dashboard", (_) => false);
+      Navigator.pushNamedAndRemoveUntil(
+        context,
+        _isProtectedInitialRoute ? widget.initialRoute : "/dashboard",
+        (_) => false,
+      );
     } on ApiException catch (e) {
       if (e.statusCode == 401 || e.statusCode == 403) {
         await Storage.clearToken();
@@ -55,10 +71,18 @@ class _BootScreenState extends State<BootScreen> {
       }
 
       if (!mounted) return;
-      Navigator.pushNamedAndRemoveUntil(context, "/dashboard", (_) => false);
+      Navigator.pushNamedAndRemoveUntil(
+        context,
+        _isProtectedInitialRoute ? widget.initialRoute : "/dashboard",
+        (_) => false,
+      );
     } catch (_) {
       if (!mounted) return;
-      Navigator.pushNamedAndRemoveUntil(context, "/dashboard", (_) => false);
+      Navigator.pushNamedAndRemoveUntil(
+        context,
+        _isProtectedInitialRoute ? widget.initialRoute : "/dashboard",
+        (_) => false,
+      );
     }
   }
 

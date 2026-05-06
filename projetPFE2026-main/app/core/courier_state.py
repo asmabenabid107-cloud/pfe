@@ -8,7 +8,7 @@ from app.models.user import User
 
 def is_contract_ended(courier: User, today: date | None = None) -> bool:
     today = today or date.today()
-    return bool(courier.contract_end_date and courier.contract_end_date < today)
+    return bool(courier.contract_end_date and courier.contract_end_date <= today)
 
 
 def has_active_approved_leave(db: Session, courier_id: int, today: date | None = None) -> bool:

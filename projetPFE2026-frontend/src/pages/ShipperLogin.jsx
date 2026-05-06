@@ -1,5 +1,6 @@
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useMemo, useState } from "react";
+
 import { api } from "../api/client.js";
 import PasswordInput from "./PasswordInput";
 import ThemeToggleButton from "../components/ThemeToggleButton.jsx";
@@ -24,9 +25,7 @@ export default function ShipperLogin() {
 
     try {
       const res = await api.post("/auth/shipper/login", { email, password });
-
       localStorage.setItem("shipper_access_token", res.data.access_token);
-
       navigate("/expediteur/dashboard");
     } catch (e) {
       const status = e?.response?.status;
@@ -52,9 +51,9 @@ export default function ShipperLogin() {
       >
         <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "flex-start" }}>
           <div>
-            <div style={{ fontSize: 22, fontWeight: 800 }}>Connexion Expéditeur</div>
+            <div style={{ fontSize: 22, fontWeight: 800 }}>Connexion Expediteur</div>
             <div style={{ opacity: 0.75, fontSize: 13, marginTop: 4 }}>
-              Accès à votre espace expéditeur MZ Logistic.
+              Acces a votre espace expediteur MZ Logistic.
             </div>
           </div>
 
@@ -116,15 +115,7 @@ export default function ShipperLogin() {
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               placeholder="expediteur@mz.com"
-              style={{
-                width: "100%",
-                borderRadius: 12,
-                border: "1px solid var(--border-soft)",
-                background: "var(--surface-panel-soft)",
-                color: "var(--text-primary)",
-                padding: "12px 12px",
-                outline: "none",
-              }}
+              style={fieldStyle}
               required
               autoComplete="email"
               disabled={loading}
@@ -143,7 +134,7 @@ export default function ShipperLogin() {
                   opacity: 0.85,
                 }}
               >
-                Mot de passe oublié ?
+                Mot de passe oublie ?
               </Link>
             </div>
 
@@ -175,11 +166,40 @@ export default function ShipperLogin() {
             {loading ? "Connexion..." : "Se connecter"}
           </button>
 
-          <div style={{ marginTop: 6, fontSize: 13, opacity: 0.9 }}>
-            Pas encore de compte ? <Link to="/expediteur/register">Créer un compte</Link>
+          <div style={{ marginTop: 8, display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+            <div style={{ fontSize: 13, opacity: 0.9 }}>
+              Pas encore de compte ? <Link to="/expediteur/register">Creer un compte</Link>
+            </div>
+            <button
+              type="button"
+              onClick={() => navigate("/admin/login")}
+              style={secondaryMiniBtn}
+            >
+              Connexion admin
+            </button>
           </div>
         </form>
       </div>
     </div>
   );
 }
+
+const fieldStyle = {
+  width: "100%",
+  borderRadius: 12,
+  border: "1px solid var(--border-soft)",
+  background: "var(--surface-panel-soft)",
+  color: "var(--text-primary)",
+  padding: "12px 12px",
+  outline: "none",
+};
+
+const secondaryMiniBtn = {
+  borderRadius: 10,
+  border: "1px solid var(--border-soft)",
+  background: "var(--surface-card)",
+  color: "var(--text-primary)",
+  padding: "9px 12px",
+  fontWeight: 700,
+  fontSize: 12,
+};

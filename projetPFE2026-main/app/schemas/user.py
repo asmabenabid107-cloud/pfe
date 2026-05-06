@@ -10,6 +10,11 @@ class UserOut(BaseModel):
     name: str
     email: EmailStr
     phone: Optional[str] = None
+    phone2: Optional[str] = None
+    address: Optional[str] = None
+    city: Optional[str] = None
+    gender: Optional[str] = None
+    ouvrir_colis_par_defaut: Optional[str] = None
     role: str
     is_approved: bool
     is_active: bool

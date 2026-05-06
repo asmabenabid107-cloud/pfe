@@ -1,384 +1,434 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import colisService from "../../api/colisService";
 import { api } from "../../api/client";
-import ThemeToggleButton from "../../components/ThemeToggleButton.jsx";
+import "../../Dashboard.css";
 
-const STATUS_LABELS = {
-  en_attente: { label: "En attente", color: "var(--warning)", bg: "rgba(245,158,11,0.15)",  border: "rgba(245,158,11,0.35)"  },
-  retour:      { label: "Retour",      color: "var(--violet)", bg: "rgba(167,139,250,0.15)", border: "rgba(167,139,250,0.35)" },
-  en_transit:  { label: "En transit", color: "var(--accent-soft)", bg: "rgba(110,168,255,0.15)", border: "rgba(110,168,255,0.35)" },
-  livré:       { label: "Livré",      color: "var(--success)", bg: "rgba(44,203,118,0.15)",  border: "rgba(44,203,118,0.35)"  },
-  annulé:      { label: "Annulé",     color: "var(--danger)", bg: "rgba(255,95,95,0.15)",   border: "rgba(255,95,95,0.35)"   },
+
+// ─── Constants ────────────────────────────────────────────────────────────────
+const STATUS_META = {
+  en_attente: { label:"En attente", color:"#b45309", bg:"#fffbeb", border:"#fde68a" },
+  en_transit:  { label:"En transit",  color:"#2563eb", bg:"#eff6ff", border:"#bfdbfe" },
+  livre:       { label:"Livrés",      color:"#15803d", bg:"#f0fdf4", border:"#bbf7d0" },
+  retour:      { label:"Retour",      color:"#6d28d9", bg:"#f5f3ff", border:"#ddd6fe" },
 };
 
-const inputStyle = {
-  width: "100%", borderRadius: 12,
-  border: "1px solid var(--border-strong)",
-  background: "var(--surface-card)",
-  color: "var(--text-primary)", padding: "11px 14px",
-  outline: "none", fontSize: "0.95rem", boxSizing: "border-box",
-};
+const STAT_CONFIG = [
+  { key:"total",      label:"Total colis", noClick:true,  colorVal:"#2563eb", bgIco:"#eff6ff" },
+  { key:"en_attente", label:"En attente",  noClick:false, colorVal:"#b45309", bgIco:"#fffbeb" },
+  { key:"en_transit", label:"En transit",  noClick:false, colorVal:"#2563eb", bgIco:"#eff6ff" },
+  { key:"livre",      label:"Livrés",      noClick:false, colorVal:"#15803d", bgIco:"#f0fdf4" },
+  { key:"retour",     label:"Retour",      noClick:false, colorVal:"#6d28d9", bgIco:"#f5f3ff" },
+];
 
+function normalizeStatus(v) {
+  const r = String(v||"").toLowerCase();
+  if (r.includes("attente")) return "en_attente";
+  if (r.includes("transit")) return "en_transit";
+  if (r.includes("livr"))    return "livre";
+  if (r.includes("retour"))  return "retour";
+  return r;
+}
+
+function notifRemaining(expiresAt) {
+  if (!expiresAt) return "";
+  const ms = new Date(expiresAt).getTime() - Date.now();
+  if (isNaN(ms) || ms <= 0) return "Expirée";
+  const h = Math.floor(ms / 3600000);
+  const m = Math.floor((ms % 3600000) / 60000);
+  return h > 0 ? `${h}h ${m}m` : `${m}m`;
+}
+
+// ─── Stat SVG icons ───────────────────────────────────────────────────────────
+function StatIcon({ k, color }) {
+  if (k === "total") return <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><rect x="1" y="4" width="14" height="10" rx="1.5" stroke={color} strokeWidth="1.5"/><path d="M5 4V3a3 3 0 016 0v1" stroke={color} strokeWidth="1.5" strokeLinecap="round"/></svg>;
+  if (k === "en_attente") return <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="6.5" stroke={color} strokeWidth="1.5"/><path d="M8 5v3.5l2 2" stroke={color} strokeWidth="1.5" strokeLinecap="round"/></svg>;
+  if (k === "en_transit") return <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><rect x="1" y="5" width="10" height="7" rx="1" stroke={color} strokeWidth="1.4"/><path d="M11 7h2.5l1.5 2v2h-4V7z" stroke={color} strokeWidth="1.4" strokeLinejoin="round"/><circle cx="4" cy="13" r="1.2" fill={color}/><circle cx="12" cy="13" r="1.2" fill={color}/></svg>;
+  if (k === "livre") return <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M2.5 8.5l3.5 3.5 7-7" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>;
+  return <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M3 8h8a3 3 0 010 6H7" stroke={color} strokeWidth="1.5" strokeLinecap="round"/><path d="M6 5L3 8l3 3" stroke={color} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>;
+}
+
+// ─── Colis card ───────────────────────────────────────────────────────────────
+function ColisCard({ colis }) {
+  const key = normalizeStatus(colis.statut);
+  const m =
+    STATUS_META[key] || {
+      label: colis.statut,
+      color: "#94a3b8",
+      bg: "rgba(148,163,184,0.10)",
+      border: "rgba(148,163,184,0.30)",
+    };
+
+  const date = colis.created_at
+    ? new Date(colis.created_at).toLocaleDateString("fr-TN")
+    : "-";
+
+  const prix = Number(colis.prix);
+  const prixText = Number.isFinite(prix) ? `${prix.toFixed(3)} DT` : "0.000 DT";
+
+  return (
+    <div className="dash-cc">
+      <div className="dash-cc-top">
+        <span className="dash-cc-num">#{colis.numero_suivi}</span>
+        <span
+          className="dash-pill"
+          style={{
+            color: m.color,
+            background: m.bg,
+            borderColor: m.border,
+          }}
+        >
+          {m.label}
+        </span>
+      </div>
+
+      <div className="dash-cc-body">
+        <div className="dash-cc-lbl">DESTINATAIRE</div>
+        <div className="dash-cc-name">{colis.nom_destinataire}</div>
+        <div className="dash-cc-sub">{colis.telephone_destinataire}</div>
+        {colis.email_destinataire && (
+          <div className="dash-cc-sub">{colis.email_destinataire}</div>
+        )}
+
+        <div className="dash-cc-lbl">ADRESSE</div>
+        <div className="dash-cc-address">{colis.adresse_livraison}</div>
+
+        <div className="dash-cc-foot">
+          <div>
+            <div className="dash-cc-ml">Poids</div>
+            <div className="dash-cc-mv">{colis.poids} kg</div>
+          </div>
+
+          <div>
+            <div className="dash-cc-ml">Prix</div>
+            <div className="dash-cc-mv price">{prixText}</div>
+          </div>
+
+          <div>
+            <div className="dash-cc-ml">Date</div>
+            <div className="dash-cc-mv date">{date}</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Dashboard ────────────────────────────────────────────────────────────────
 export default function Dashboard() {
   const navigate = useNavigate();
-  const [colisList, setColisList]         = useState([]);
-  const [loading, setLoading]             = useState(true);
-  const [activeStatut, setActiveStatut]   = useState(null);
-  const [notifications, setNotifications] = useState([]);
 
-  // Profil
-  const [showProfil, setShowProfil]       = useState(false);
-  const [profil, setProfil]               = useState(null);
-  const [profilEdit, setProfilEdit]       = useState({ phone: "", email: "" });
-  const [profilErrors, setProfilErrors]   = useState({});
+  const [colisList,     setColisList]     = useState([]);
+  const [notifications, setNotifications] = useState([]);
+  const [loading,       setLoading]       = useState(true);
+  const [activeStatut,  setActiveStatut]  = useState(null);
+  const [user, setUser] = useState(null);
+
+  const [showProfil,    setShowProfil]    = useState(false);
+  const [profil,        setProfil]        = useState(null);
+  const [profilEdit,    setProfilEdit]    = useState({ phone:"", email:"" });
+  const [profilErrors,  setProfilErrors]  = useState({});
   const [profilLoading, setProfilLoading] = useState(false);
   const [profilSuccess, setProfilSuccess] = useState(false);
 
-  useEffect(() => { loadColis(); }, []);
 
-  const loadColis = async () => {
+
+  async function loadUser() {
+    try {
+      const { data } = await api.get("/auth/me");
+      setUser(data || null);
+    } catch (err) {
+      if (err?.response?.status !== 401) console.error(err);
+      setUser(null);
+    }
+  }
+
+  useEffect(() => {
+    loadDashboard();
+    loadUser();
+  }, []);
+
+  async function loadDashboard() {
     try {
       setLoading(true);
-      const data = await colisService.getAll();
-      const list = Array.isArray(data) ? data : [];
-      setColisList(list);
-
-      // ── Système notifications 48h ──
-      const EXPIRE_MS = 48 * 60 * 60 * 1000; // 48 heures
-      const now = Date.now();
-
-      // Charger les notifs stockées { id, seenAt }
-      let stored = [];
-      try { stored = JSON.parse(localStorage.getItem("notifs_seen") || "[]"); } catch {}
-
-      // Purger celles expirées (> 48h)
-      stored = stored.filter(n => now - n.seenAt < EXPIRE_MS);
-      localStorage.setItem("notifs_seen", JSON.stringify(stored));
-
-      const seenIds = stored.map(n => n.id);
-
-      // Colis avec admin_note pas encore vus (ou vus mais < 48h → déjà filtrés)
-      const newNotifs = list.filter(c => c.admin_note && !seenIds.includes(c.id));
-      setNotifications(newNotifs);
-    } catch (err) {
-      console.error("Erreur:", err);
-    } finally {
-      setLoading(false);
+      const [colisData, notifData] = await Promise.all([
+        colisService.getAll(),
+        colisService.getNotifications(),
+      ]);
+      setColisList(Array.isArray(colisData) ? colisData : []);
+      setNotifications(Array.isArray(notifData) ? notifData : []);
+    } catch(e) {
+      if (e?.response?.status !== 401) console.error(e);
     }
-  };
+    finally { setLoading(false); }
+  }
 
-  const dismissNotif = (id) => {
-    let stored = [];
-    try { stored = JSON.parse(localStorage.getItem("notifs_seen") || "[]"); } catch {}
-    stored.push({ id, seenAt: Date.now() });
-    localStorage.setItem("notifs_seen", JSON.stringify(stored));
-    setNotifications(prev => prev.filter(n => n.id !== id));
-  };
+  async function dismissNotif(id) {
+    try { await colisService.markNotificationRead(id); setNotifications(p => p.filter(n => n.id !== id)); }
+    catch(e) { console.error(e); }
+  }
 
-  const dismissAllNotifs = () => {
-    let stored = [];
-    try { stored = JSON.parse(localStorage.getItem("notifs_seen") || "[]"); } catch {}
-    const now = Date.now();
-    notifications.forEach(n => stored.push({ id: n.id, seenAt: now }));
-    localStorage.setItem("notifs_seen", JSON.stringify(stored));
-    setNotifications([]);
-  };
+  async function dismissAll() {
+    try { await colisService.markAllNotificationsRead(); setNotifications([]); }
+    catch(e) { console.error(e); }
+  }
 
-  const openProfil = async () => {
-    setShowProfil(true);
-    setProfilSuccess(false);
-    setProfilErrors({});
+  async function openNotification(notif) {
+    try { await colisService.markNotificationRead(notif.id); setNotifications(p => p.filter(n => n.id !== notif.id)); }
+    catch(e) { console.error(e); }
+    navigate("/expediteur/colis/tous");
+  }
+
+  async function openProfil() {
+    setShowProfil(true); setProfilSuccess(false); setProfilErrors({});
     try {
       const { data } = await api.get("/auth/me");
       setProfil(data);
-      setProfilEdit({ phone: data.phone || "", email: data.email || "" });
-    } catch { setProfil(null); }
-  };
+      setProfilEdit({ phone: data.phone||"", email:data.email||"" });
+    } catch(e) { console.error(e); setProfil(null); }
+  }
 
-  const handleProfilChange = (e) => {
+  function handleProfilChange(e) {
     const { name, value } = e.target;
-    setProfilEdit((prev) => ({ ...prev, [name]: value }));
-    if (profilErrors[name]) setProfilErrors((prev) => ({ ...prev, [name]: null }));
-  };
+    setProfilEdit(p => ({ ...p, [name]: value }));
+    if (profilErrors[name]) setProfilErrors(p => ({ ...p, [name]: null }));
+  }
 
-  const handleProfilSave = async () => {
-    const e = {};
-    if (!profilEdit.email.trim()) e.email = "Email requis";
-    if (Object.keys(e).length > 0) { setProfilErrors(e); return; }
+  async function handleProfilSave() {
+    if (!profilEdit.email.trim()) { setProfilErrors({ email:"Email requis" }); return; }
     setProfilLoading(true);
     try {
-      const { data } = await api.patch("/auth/me", { phone: profilEdit.phone, email: profilEdit.email });
+      const { data } = await api.patch("/auth/me", { phone:profilEdit.phone, email:profilEdit.email });
       setProfil(data);
+      setUser(data);
+      setProfilEdit({ phone:data.phone||"", email:data.email||"" });
       setProfilSuccess(true);
       setTimeout(() => setProfilSuccess(false), 3000);
-    } catch (err) {
-      alert(err.response?.data?.detail || "Erreur serveur");
-    } finally {
-      setProfilLoading(false);
-    }
-  };
+    } catch(e) { alert(e.response?.data?.detail || "Erreur serveur"); }
+    finally { setProfilLoading(false); }
+  }
 
-  const handleLogout = () => {
+  function handleLogout() {
     localStorage.removeItem("shipper_access_token");
     navigate("/expediteur/login");
-  };
+  }
 
-  const handleStatClick = (statut) => {
-    setActiveStatut((prev) => prev === statut ? null : statut);
-  };
+  const counts = useMemo(() => ({
+    total:      colisList.length,
+    en_attente: colisList.filter(c => normalizeStatus(c.statut) === "en_attente").length,
+    en_transit: colisList.filter(c => normalizeStatus(c.statut) === "en_transit").length,
+    livre:      colisList.filter(c => normalizeStatus(c.statut) === "livre").length,
+    retour:     colisList.filter(c => normalizeStatus(c.statut) === "retour").length,
+  }), [colisList]);
 
-  const filteredColis = activeStatut
-    ? colisList.filter(c => c.statut === activeStatut)
-    : [];
+  const filteredColis = useMemo(() => {
+    if (!activeStatut) return [];
+    return colisList.filter(c => normalizeStatus(c.statut) === activeStatut);
+  }, [activeStatut, colisList]);
 
-  const stats = [
-    { label: "Total colis", value: colisList.length,                                        color: "var(--accent-soft)", bg: "rgba(110,168,255,0.10)", statut: null,         clickable: false },
-    { label: "En attente",  value: colisList.filter(c => c.statut === "en_attente").length, color: "var(--warning)", bg: "rgba(245,158,11,0.10)",  statut: "en_attente", clickable: true  },
-    { label: "En transit",  value: colisList.filter(c => c.statut === "en_transit").length, color: "var(--accent-soft)", bg: "rgba(110,168,255,0.10)", statut: "en_transit", clickable: true  },
-    { label: "Livrés",      value: colisList.filter(c => c.statut === "livré").length,      color: "var(--success)", bg: "rgba(44,203,118,0.10)",  statut: "livré",      clickable: true  },
-    { label: "Retour",      value: colisList.filter(c => c.statut === "retour").length,     color: "var(--violet)", bg: "rgba(167,139,250,0.10)", statut: "retour",     clickable: true  },
-  ];
+  const showingNotifs = activeStatut === null;
+  const userName = user?.name || "Expéditeur";
+
+  const nom = user?.name || "Expéditeur";
+
+const civilite =
+  user?.gender === "female" || user?.gender === "feminin"
+    ? "Madame"
+    : user?.gender === "male" || user?.gender === "masculin"
+    ? "Monsieur"
+    : "";
+
+  const welcomeText = user ? `${civilite} ${nom}` : "Expéditeur";
 
   return (
-    <div style={{ minHeight: "100vh", background: "var(--page-bg)", color: "var(--text-primary)", fontFamily: "system-ui, Arial, sans-serif" }}>
+    <div className="dash-root">
+      <div className="dash-shell">
 
-      {/* HEADER */}
-      <header style={{ position: "sticky", top: 0, zIndex: 30, display: "flex", alignItems: "center", justifyContent: "space-between", background: "var(--header-bg)", borderBottom: "1px solid rgba(255,255,255,0.08)", backdropFilter: "blur(10px)", padding: "14px 28px" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          <div style={{ width: 10, height: 10, borderRadius: "50%", background: "#7aa2ff", boxShadow: "0 0 0 6px rgba(122,162,255,0.15)" }} />
-          <span style={{ fontWeight: 900, fontSize: "1.1rem" }}>🚚 MZ Logistic</span>
-          <span style={{ opacity: 0.4, margin: "0 4px" }}>|</span>
-          <span style={{ opacity: 0.7, fontSize: "0.9rem" }}>Tableau de bord</span>
-        </div>
-        <div style={{ display: "flex", gap: 10 }}>
-          <ThemeToggleButton compact />
-          <button onClick={openProfil} style={{ display: "flex", alignItems: "center", gap: 8, background: "var(--surface-card)", border: "1px solid var(--border-strong)", color: "var(--text-primary)", borderRadius: 12, padding: "10px 16px", cursor: "pointer", fontWeight: 700 }}>
-            👤 Mon Profil
-          </button>
-          <button onClick={handleLogout} style={{ background: "rgba(255,95,95,.15)", border: "1px solid var(--danger-border)", color: "var(--danger)", borderRadius: 12, padding: "10px 16px", cursor: "pointer", fontWeight: 700 }}>
-            ⏻ Déconnexion
-          </button>
-        </div>
-      </header>
-
-      {/* NOTIFICATIONS ADMIN */}
-      {notifications.length > 0 && (
-        <div style={{ padding: "16px 28px 0" }}>
-          <div style={{ marginBottom: 10, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <span style={{ fontSize: "1.1rem" }}>🔔</span>
-              <span style={{ fontWeight: 800, fontSize: "0.9rem", color: "var(--warning)" }}>
-                {notifications.length} notification{notifications.length > 1 ? "s" : ""} de l'admin
-              </span>
-              <span style={{ fontSize: "0.72rem", opacity: 0.45, background: "rgba(245,158,11,.1)", border: "1px solid rgba(245,158,11,.25)", color: "var(--warning)", padding: "1px 8px", borderRadius: 8 }}>
-                expire après 48h
-              </span>
-            </div>
-            <button onClick={dismissAllNotifs} style={{ background: "none", border: "none", color: "var(--text-soft)", cursor: "pointer", fontSize: "0.78rem", textDecoration: "underline" }}>
-              Tout marquer comme lu
+        {/* Sidebar */}
+        <aside className="dash-sidebar">
+          <div className="dash-sb-logo">
+            <div className="dash-sb-dot" />
+            <span className="dash-sb-name">MZ Logistic</span>
+          </div>
+          <nav className="dash-sb-nav">
+            <div className="dash-sb-sec">Principal</div>
+            <button className="dash-sb-link active">
+              <svg width="15" height="15" viewBox="0 0 16 16" fill="none"><rect x="1" y="1" width="6" height="6" rx="1.5" stroke="currentColor" strokeWidth="1.4"/><rect x="9" y="1" width="6" height="6" rx="1.5" stroke="currentColor" strokeWidth="1.4"/><rect x="1" y="9" width="6" height="6" rx="1.5" stroke="currentColor" strokeWidth="1.4"/><rect x="9" y="9" width="6" height="6" rx="1.5" stroke="currentColor" strokeWidth="1.4"/></svg>
+              Tableau de bord
             </button>
+            <div className="dash-sb-sec">Colis</div>
+            <button className="dash-sb-link" onClick={() => navigate("/expediteur/colis/nouveau")}>
+              <svg width="15" height="15" viewBox="0 0 16 16" fill="none"><path d="M8 3v10M3 8h10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>
+              Nouveau colis
+            </button>
+            <button className="dash-sb-link" onClick={() => navigate("/expediteur/colis/tous")}>
+              <svg width="15" height="15" viewBox="0 0 16 16" fill="none"><rect x="1.5" y="3" width="13" height="10" rx="1.5" stroke="currentColor" strokeWidth="1.4"/><path d="M5 7h6M5 10h4" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/></svg>
+              Liste colis
+            </button>
+            <button className="dash-sb-link" onClick={() => navigate("/expediteur/colis/historique")}>
+              <svg width="15" height="15" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="6.5" stroke="currentColor" strokeWidth="1.4"/><path d="M8 5v3.5l2 2" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/></svg>
+              Historique
+            </button>
+          </nav>
+          <div className="dash-sb-bottom">
+            <div className="dash-sb-user">
+              <div className="dash-sb-avatar">{userName?.split(" ").map(n => n[0]).join("").toUpperCase()}</div>
+              <div>
+                <div className="dash-sb-uname">{userName}</div>
+                <div className="dash-sb-urole">Expéditeur</div>
+              </div>
+            </div>
           </div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            {notifications.map(n => {
-              const accepted = n.admin_note === "accepté";
+        </aside>
 
-              // Calcul temps restant
-              let stored = [];
-              try { stored = JSON.parse(localStorage.getItem("notifs_seen") || "[]"); } catch {}
-              const entry    = stored.find(s => s.id === n.id);
-              const seenAt   = entry?.seenAt;
-              const EXPIRE   = 48 * 60 * 60 * 1000;
-              const remaining = seenAt ? Math.max(0, EXPIRE - (Date.now() - seenAt)) : EXPIRE;
-              const hoursLeft = Math.floor(remaining / (60 * 60 * 1000));
-              const minsLeft  = Math.floor((remaining % (60 * 60 * 1000)) / 60000);
+        {/* Main */}
+        <div className="dash-main">
+          <div className="dash-topbar">
+            <span className="dash-topbar-title">Tableau de bord</span>
+            <div className="dash-topbar-right">
+              <button className="dash-btn" onClick={openProfil}>Mon profil</button>
+              <button className="dash-btn dash-btn-danger" onClick={handleLogout}>Déconnexion</button>
+            </div>
+          </div>
 
-              return (
-                <div key={n.id} style={{
-                  display: "flex", alignItems: "flex-start", gap: 14,
-                  borderRadius: 14, padding: "14px 18px",
-                  background: accepted ? "rgba(44,203,118,.07)" : "rgba(255,95,95,.07)",
-                  border: `1px solid ${accepted ? "rgba(44,203,118,.35)" : "rgba(255,95,95,.35)"}`,
-                }}>
-                  <span style={{ fontSize: "1.6rem", marginTop: 2 }}>{accepted ? "✅" : "❌"}</span>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontWeight: 900, fontSize: "0.95rem", color: accepted ? "#2ccb76" : "#ff5f5f", marginBottom: 4 }}>
-                      Votre colis a été {accepted ? "accepté ✓" : "refusé ✗"} par l'admin
+          <div className="dash-page">
+
+            {/* Hero */}
+            <div className="dash-hero">
+              <div className="dash-hero-greeting">Espace expéditeur</div>
+              <div className="dash-hero-title">Bienvenue, {welcomeText} 👋</div>
+              <div className="dash-hero-sub">Gérez vos colis et suivez les statuts en temps réel.</div>
+            </div>
+
+            {/* Stats */}
+            <div className="dash-stats">
+              {STAT_CONFIG.map(s => {
+                const isActive = activeStatut === s.key;
+                const m = STATUS_META[s.key];
+                return (
+                  <div
+                    key={s.key}
+                    className={`dash-sc${s.noClick ? " no-click" : ""}${isActive ? " active" : ""}`}
+                    style={isActive ? { borderColor:m?.border, background:m?.bg } : {}}
+                    onClick={() => { if (s.noClick) return; setActiveStatut(p => p === s.key ? null : s.key); }}
+                  >
+                    <div className="dash-sc-ico" style={{ background:s.bgIco }}>
+                      <StatIcon k={s.key} color={s.colorVal} />
                     </div>
-                    <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                      <div style={{ fontSize: "0.85rem" }}>
-                        <span style={{ opacity: 0.6 }}>Destinataire : </span>
-                        <strong>{n.nom_destinataire}</strong>
-                      </div>
-                      <div style={{ fontSize: "0.85rem" }}>
-                        <span style={{ opacity: 0.6 }}>N° suivi : </span>
-                        <span style={{ fontFamily: "monospace", color: "var(--accent-soft)", fontWeight: 700, fontSize: "0.9rem" }}>#{n.numero_suivi}</span>
-                      </div>
-                      {accepted ? (
-                        <div style={{ marginTop: 4, fontSize: "0.8rem", color: "var(--success)", opacity: 0.8 }}>
-                          ✓ Ce colis est confirmé et sera pris en charge par un livreur
-                        </div>
-                      ) : (
-                        <div style={{ marginTop: 4, fontSize: "0.8rem", color: "var(--danger)", opacity: 0.8 }}>
-                          ✗ Ce colis a été annulé — contactez l'admin pour plus d'info
-                        </div>
-                      )}
+                    <div className="dash-sc-val" style={{ color:s.colorVal }}>
+                      {loading ? "—" : counts[s.key]}
                     </div>
+                    <div className="dash-sc-lbl">{s.label}</div>
+                    {!s.noClick && <div className="dash-sc-hint">{isActive ? "Fermer" : "Voir"}</div>}
                   </div>
-                  <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 8 }}>
-                    <button onClick={() => dismissNotif(n.id)} style={{ background: "none", border: "none", color: "var(--text-soft)", cursor: "pointer", fontSize: "1.1rem", padding: 0 }}>✕</button>
-                    <div style={{ fontSize: "0.68rem", opacity: 0.45, textAlign: "right", whiteSpace: "nowrap" }}>
-                      ⏱ expire dans {hoursLeft > 0 ? `${hoursLeft}h ${minsLeft}m` : `${minsLeft}m`}
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
-      {/* STATS — cliquables */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(5,1fr)", gap: 12, padding: "24px 28px 0" }}>
-        {stats.map((s) => {
-          const isActive = activeStatut === s.statut && s.clickable;
-          return (
-            <div key={s.label} onClick={() => s.clickable && handleStatClick(s.statut)}
-              style={{
-                background: isActive ? s.bg : "rgba(255,255,255,.04)",
-                border: isActive ? `2px solid ${s.color}` : "1px solid rgba(255,255,255,.08)",
-                borderRadius: 14, padding: "18px 20px", textAlign: "center",
-                cursor: s.clickable ? "pointer" : "default",
-                transition: "all 0.2s ease",
-                transform: isActive ? "translateY(-2px)" : "none",
-                boxShadow: isActive ? `0 4px 20px ${s.color}33` : "none",
-              }}>
-              <div style={{ fontSize: "2rem", fontWeight: 900, color: s.color }}>{s.value}</div>
-              <div style={{ fontSize: "0.82rem", opacity: 0.75, marginTop: 4 }}>{s.label}</div>
-              {s.clickable && (
-                <div style={{ fontSize: "0.68rem", opacity: 0.5, marginTop: 5 }}>
-                  {isActive ? "▲ fermer" : "▼ voir"}
-                </div>
-              )}
+                );
+              })}
             </div>
-          );
-        })}
-      </div>
 
-      {/* CONTENU PRINCIPAL */}
-      <main style={{ padding: "24px 28px" }}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 18 }}>
-          <div>
-            <h2 style={{ margin: 0, fontSize: "1.1rem", fontWeight: 900 }}>
-              {activeStatut ? `Colis — ${STATUS_LABELS[activeStatut]?.label}` : "Mes Colis"}
-            </h2>
-            {activeStatut && (
-              <p style={{ margin: "3px 0 0", opacity: 0.5, fontSize: "0.8rem" }}>
-                {filteredColis.length} colis • cliquez sur le statut pour fermer
-              </p>
-            )}
-          </div>
-          <button onClick={() => navigate("/expediteur/colis/nouveau")}
-            style={{ background: "var(--accent-bg)", border: "1px solid var(--accent-border)", color: "var(--text-primary)", borderRadius: 12, padding: "10px 20px", cursor: "pointer", fontWeight: 800 }}>
-            + Nouveau colis
-          </button>
-        </div>
-
-        {/* Cartes filtrées ou zone vide */}
-        {activeStatut ? (
-          filteredColis.length === 0 ? (
-            <div style={{ textAlign: "center", padding: "40px 20px", opacity: 0.6 }}>
-              <div style={{ fontSize: "2.5rem" }}>📭</div>
-              <p>Aucun colis avec ce statut</p>
-            </div>
-          ) : (
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px,1fr))", gap: 14 }}>
-              {filteredColis.map((colis) => (
-                <ColisCardLecture key={colis.id} colis={colis} />
-              ))}
-            </div>
-          )
-        ) : (
-          <div style={{ borderRadius: 14, border: "1px dashed rgba(255,255,255,.12)", background: "var(--surface-panel-faint)", padding: "60px 20px", textAlign: "center" }}>
-            <div style={{ fontSize: "3.5rem", marginBottom: 14 }}>📦</div>
-            <p style={{ margin: "0 0 24px", opacity: 0.6, fontSize: "0.95rem" }}>
-              Gérez vos colis depuis les boutons ci-dessus
-            </p>
-            <div style={{ display: "flex", gap: 12, justifyContent: "center", flexWrap: "wrap" }}>
-              <button onClick={() => navigate("/expediteur/colis/tous")}
-                style={{ background: "var(--surface-card)", border: "1px solid var(--border-strong)", color: "var(--text-primary)", borderRadius: 12, padding: "12px 24px", cursor: "pointer", fontWeight: 700 }}>
-                🗂️ Voir tous les colis ({loading ? "..." : colisList.length})
-              </button>
-              <button onClick={() => navigate("/expediteur/colis/nouveau")}
-                style={{ background: "var(--accent-bg)", border: "1px solid var(--accent-border)", color: "var(--text-primary)", borderRadius: 12, padding: "12px 24px", cursor: "pointer", fontWeight: 800 }}>
-                + Créer un nouveau colis
-              </button>
-            </div>
-          </div>
-        )}
-      </main>
-
-      {/* MODAL PROFIL */}
-      {showProfil && (
-        <div style={{ position: "fixed", inset: 0, background: "var(--overlay-bg)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100 }}>
-          <div style={{ background: "var(--auth-panel-bg)", border: "1px solid var(--border-soft)", borderRadius: 16, padding: 28, width: "90%", maxWidth: 440 }}>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                <div style={{ width: 44, height: 44, borderRadius: "50%", background: "rgba(110,168,255,.2)", border: "1px solid rgba(110,168,255,.4)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "1.3rem" }}>👤</div>
+            {/* Notifications / Colis panel */}
+            <div className="dash-notif-panel">
+              <div className="dash-notif-head">
                 <div>
-                  <div style={{ fontWeight: 900, fontSize: "1rem" }}>Mon Profil</div>
-                  <div style={{ opacity: 0.6, fontSize: "0.8rem" }}>Informations de votre compte</div>
+                  <div className="dash-notif-title">
+                    {showingNotifs ? "Notifications" : `Colis — ${STATUS_META[activeStatut]?.label}`}
+                  </div>
+                  <div className="dash-notif-sub">
+                    {showingNotifs ? (
+                      <>
+                        <span>{notifications.length > 0 ? `${notifications.length} message${notifications.length > 1 ? "s" : ""} de l'administration` : "Aucune nouvelle notification"}</span>
+                        {notifications.length > 0 && <span className="dash-notif-tag">expire après 48h</span>}
+                      </>
+                    ) : (
+                      <span>{filteredColis.length} colis trouvés</span>
+                    )}
+                  </div>
+                </div>
+                <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+                  {showingNotifs && notifications.length > 0 && (
+                    <button className="dash-dismiss-all" onClick={dismissAll}>Tout marquer comme lu</button>
+                  )}
+                  {!showingNotifs && (
+                    <button className="dash-clear-btn" onClick={() => setActiveStatut(null)}>✕ Fermer</button>
+                  )}
                 </div>
               </div>
-              <button onClick={() => setShowProfil(false)} style={{ background: "none", border: "none", color: "var(--text-primary)", fontSize: "1.4rem", cursor: "pointer", opacity: 0.6 }}>✕</button>
+
+              {showingNotifs ? (
+                notifications.length === 0 ? (
+                  <div className="dash-empty">
+                    <div className="dash-empty-ico">🔔</div>
+                    <div className="dash-empty-txt">Aucune notification</div>
+                  </div>
+                ) : (
+                  notifications.map(n => {
+                    const ok = n.kind === "approved";
+                    return (
+                      <div key={n.id} className={`dash-notif-item ${ok ? "ok" : "ko"}`} onClick={() => openNotification(n)}>
+                        <div className={`dash-notif-ico ${ok ? "ok" : "ko"}`}>{ok ? "✓" : "✕"}</div>
+                        <div style={{ flex:1 }}>
+                          <div className={`dash-notif-name ${ok ? "ok" : "ko"}`}>{n.title}</div>
+                          <div className="dash-notif-row">Destinataire : <b>{n.nom_destinataire}</b></div>
+                          <div className="dash-notif-track">#{n.numero_suivi}</div>
+                          <div className="dash-notif-note">
+                            {n.note || (ok ? "Le colis a été confirmé par l'administration." : "Le colis a été refusé par l'administration.")}
+                          </div>
+                        </div>
+                        <div className="dash-notif-side">
+                          <button className="dash-notif-x" onClick={e => { e.stopPropagation(); dismissNotif(n.id); }}>×</button>
+                          <span className="dash-notif-expire">expire dans {notifRemaining(n.expires_at)}</span>
+                        </div>
+                      </div>
+                    );
+                  })
+                )
+              ) : (
+                filteredColis.length === 0 ? (
+                  <div className="dash-empty">
+                    <div className="dash-empty-ico">📭</div>
+                    <div className="dash-empty-txt">Aucun colis avec ce statut</div>
+                  </div>
+                ) : (
+                  <div className="dash-colis-grid">
+                    {filteredColis.map(c => <ColisCard key={c.id} colis={c} />)}
+                  </div>
+                )
+              )}
             </div>
 
+          </div>
+        </div>
+      </div>
+
+      {/* Profile Modal */}
+      {showProfil && (
+        <div className="dash-overlay" onClick={() => setShowProfil(false)}>
+          <div className="dash-modal" onClick={e => e.stopPropagation()}>
+            <div className="dash-modal-head">
+              <div>
+                <div className="dash-modal-title">Mon profil</div>
+                <div className="dash-modal-sub">Compte expéditeur</div>
+              </div>
+              <button className="dash-modal-close" onClick={() => setShowProfil(false)}>×</button>
+            </div>
             {profil === null ? (
-              <p style={{ textAlign: "center", opacity: 0.6 }}>Chargement...</p>
+              <p style={{ textAlign:"center", color:"#9ca3af", fontSize:12 }}>Chargement...</p>
             ) : (
               <>
-                <div style={{ background: "var(--surface-panel-soft)", border: "1px solid var(--border-subtle)", borderRadius: 12, padding: 14, marginBottom: 18, display: "flex", flexDirection: "column", gap: 10 }}>
-                  {[
-                    { label: "Nom",    value: profil.name },
-                    { label: "Rôle",   value: profil.role,   color: "var(--accent-soft)" },
-                    { label: "Statut", value: profil.is_active ? "✅ Actif" : "❌ Inactif", color: profil.is_active ? "#2ccb76" : "#ff5f5f" },
-                  ].map((row, i) => (
-                    <div key={i}>
-                      {i > 0 && <div style={{ borderTop: "1px solid var(--border-subtle)", marginBottom: 10 }} />}
-                      <div style={{ display: "flex", justifyContent: "space-between" }}>
-                        <span style={{ opacity: 0.6, fontSize: "0.82rem" }}>{row.label}</span>
-                        <span style={{ fontWeight: 700, color: row.color || "#e8eefc", textTransform: "capitalize" }}>{row.value}</span>
-                      </div>
-                    </div>
-                  ))}
+                <div className="dash-info-block">
+                  <div className="dash-info-row"><span className="dash-ir-key">Nom</span><span className="dash-ir-val">{profil.name}</span></div>
+                  <div className="dash-info-row"><span className="dash-ir-key">Rôle</span><span className="dash-ir-val" style={{ color:"#2563eb" }}>{profil.role}</span></div>
+                  <div className="dash-info-row"><span className="dash-ir-key">Statut</span><span className="dash-ir-val" style={{ color: profil.is_active ? "#15803d" : "#dc2626" }}>{profil.is_active ? "Actif" : "Inactif"}</span></div>
                 </div>
-
-                <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-                  <div>
-                    <div style={{ fontSize: 12, opacity: 0.75, marginBottom: 6 }}>📧 Email *</div>
-                    <input name="email" type="email" value={profilEdit.email} onChange={handleProfilChange}
-                      style={{ ...inputStyle, borderColor: profilErrors.email ? "rgba(255,95,95,.5)" : "rgba(255,255,255,.14)" }} />
-                    {profilErrors.email && <span style={{ color: "var(--danger)", fontSize: "0.78rem" }}>{profilErrors.email}</span>}
-                  </div>
-                  <div>
-                    <div style={{ fontSize: 12, opacity: 0.75, marginBottom: 6 }}>📱 Téléphone</div>
-                    <input name="phone" value={profilEdit.phone} onChange={handleProfilChange}
-                      placeholder="+216 XX XXX XXX" style={inputStyle} />
-                  </div>
-                </div>
-
-                {profilSuccess && (
-                  <div style={{ marginTop: 12, background: "var(--success-bg)", border: "1px solid var(--success-border)", color: "var(--success)", padding: "10px 14px", borderRadius: 10, fontSize: "0.88rem", fontWeight: 700 }}>
-                    ✅ Profil mis à jour avec succès
-                  </div>
-                )}
-
-                <div style={{ display: "flex", gap: 10, marginTop: 18 }}>
-                  <button onClick={() => setShowProfil(false)} style={{ flex: 1, padding: 12, border: "1px solid var(--border-strong)", borderRadius: 10, background: "var(--surface-card)", color: "var(--text-primary)", cursor: "pointer", fontWeight: 700 }}>
-                    Fermer
-                  </button>
-                  <button onClick={handleProfilSave} disabled={profilLoading} style={{ flex: 1, padding: 12, border: "1px solid var(--accent-border)", borderRadius: 10, background: "var(--accent-bg)", color: "var(--text-primary)", cursor: "pointer", fontWeight: 800, opacity: profilLoading ? 0.7 : 1 }}>
-                    {profilLoading ? "Enregistrement..." : "💾 Enregistrer"}
+                <div className="dash-field-lbl">Email *</div>
+                <input name="email" type="email" value={profilEdit.email} onChange={handleProfilChange} className="dash-field" style={profilErrors.email ? { borderColor:"#fca5a5" } : {}} />
+                {profilErrors.email && <div style={{ color:"#dc2626", fontSize:11, marginTop:-8, marginBottom:8 }}>{profilErrors.email}</div>}
+                <div className="dash-field-lbl">Téléphone</div>
+                <input name="phone" value={profilEdit.phone} onChange={handleProfilChange} placeholder="+216 XX XXX XXX" className="dash-field" />
+                {profilSuccess && <div className="dash-success-bar">Profil mis à jour avec succès.</div>}
+                <div className="dash-modal-btns">
+                  <button className="dash-mbtn dash-mbtn-cancel" onClick={() => setShowProfil(false)}>Fermer</button>
+                  <button className="dash-mbtn dash-mbtn-save" onClick={handleProfilSave} disabled={profilLoading}>
+                    {profilLoading ? "Enregistrement..." : "Enregistrer"}
                   </button>
                 </div>
               </>
@@ -389,42 +439,3 @@ export default function Dashboard() {
     </div>
   );
 }
-
-// Carte lecture seule — pas de boutons modifier/supprimer
-function ColisCardLecture({ colis }) {
-  const status = STATUS_LABELS[colis.statut] || { label: colis.statut, color: "#94a3b8", bg: "rgba(148,163,184,0.1)", border: "rgba(148,163,184,0.3)" };
-  return (
-    <div style={{ borderRadius: 14, border: "1px solid var(--border-soft)", background: "var(--surface-panel-soft)", overflow: "hidden" }}>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 16px", background: "var(--surface-deep)", borderBottom: "1px solid rgba(255,255,255,.07)" }}>
-        <span style={{ fontFamily: "monospace", color: "var(--accent-soft)", fontSize: "0.85rem", fontWeight: 700 }}>
-          #{colis.numero_suivi}
-        </span>
-        <span style={{ background: status.bg, border: `1px solid ${status.border}`, color: status.color, padding: "3px 10px", borderRadius: 20, fontSize: "0.75rem", fontWeight: 700 }}>
-          {status.label}
-        </span>
-      </div>
-      <div style={{ padding: "14px 16px", display: "flex", flexDirection: "column", gap: 10 }}>
-        <div>
-          <div style={{ fontSize: "0.7rem", opacity: 0.5, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 3 }}>Destinataire</div>
-          <div style={{ fontWeight: 700 }}>{colis.nom_destinataire}</div>
-          <div style={{ fontSize: "0.82rem", opacity: 0.7 }}>{colis.telephone_destinataire}</div>
-        </div>
-        <div>
-          <div style={{ fontSize: "0.7rem", opacity: 0.5, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 3 }}>Adresse</div>
-          <div style={{ fontSize: "0.88rem", opacity: 0.9 }}>{colis.adresse_livraison}</div>
-        </div>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, background: "var(--surface-inset-strong)", borderRadius: 10, padding: 12 }}>
-          <div>
-            <div style={{ fontSize: "0.68rem", opacity: 0.5, marginBottom: 3 }}>Poids</div>
-            <div style={{ fontWeight: 800 }}>{colis.poids} kg</div>
-          </div>
-          <div>
-            <div style={{ fontSize: "0.68rem", opacity: 0.5, marginBottom: 3 }}>Prix</div>
-            <div style={{ fontWeight: 800, color: "var(--success)" }}>{colis.prix} DT</div>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-

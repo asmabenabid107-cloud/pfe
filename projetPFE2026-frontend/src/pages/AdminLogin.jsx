@@ -1,11 +1,14 @@
 import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
+
 import { api } from "../api/client.js";
 import PasswordInput from "./PasswordInput";
 import ThemeToggleButton from "../components/ThemeToggleButton.jsx";
 
 export default function AdminLogin() {
   const navigate = useNavigate();
+  const location = useLocation();
+  const returnTo = location.state?.from || "/admin/dashboard";
 
   const [email, setEmail] = useState("admin@mz.com");
   const [password, setPassword] = useState("admin12345");
@@ -21,10 +24,8 @@ export default function AdminLogin() {
 
     try {
       const res = await api.post("/auth/login", { email, password });
-
       localStorage.setItem("admin_access_token", res.data.access_token);
-
-      navigate("/admin/dashboard");
+      navigate(returnTo, { replace: true });
     } catch (err) {
       const detail = err?.response?.data?.detail;
       const fallback = err?.message || "Erreur de connexion admin";
@@ -49,7 +50,7 @@ export default function AdminLogin() {
           <div>
             <div style={{ fontSize: 22, fontWeight: 800 }}>Connexion Admin</div>
             <div style={{ opacity: 0.75, fontSize: 13, marginTop: 4 }}>
-              Accès au tableau de bord MZ Logistic.
+              Acces au tableau de bord MZ Logistic.
             </div>
           </div>
 
@@ -82,15 +83,7 @@ export default function AdminLogin() {
               onChange={(e) => setEmail(e.target.value)}
               placeholder="admin@mz.com"
               disabled={loading}
-              style={{
-                width: "100%",
-                borderRadius: 12,
-                border: "1px solid var(--border-soft)",
-                background: "var(--surface-panel-soft)",
-                color: "var(--text-primary)",
-                padding: "12px 12px",
-                outline: "none",
-              }}
+              style={fieldStyle}
             />
           </div>
 
@@ -105,23 +98,56 @@ export default function AdminLogin() {
             />
           </div>
 
+          <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 4 }}>
+            <button
+              type="submit"
+              disabled={loading}
+              style={{
+                flex: "1 1 180px",
+                borderRadius: 12,
+                border: "1px solid var(--accent-border)",
+                background: "var(--accent-bg)",
+                color: "var(--text-primary)",
+                padding: "12px 14px",
+                cursor: loading ? "not-allowed" : "pointer",
+                fontWeight: 800,
+                opacity: loading ? 0.7 : 1,
+              }}
+            >
+              {loading ? "Connexion..." : "Se connecter"}
+            </button>
+
+            <button
+              type="button"
+              onClick={() => navigate("/expediteur/register")}
+              style={{
+                flex: "1 1 220px",
+                borderRadius: 12,
+                border: "1px solid var(--border-soft)",
+                background: "var(--surface-card)",
+                color: "var(--text-primary)",
+                padding: "12px 14px",
+                fontWeight: 700,
+              }}
+            >
+              Creer un compte expediteur
+            </button>
+          </div>
+
           <button
-            type="submit"
-            disabled={loading}
+            type="button"
+            onClick={() => navigate("/expediteur/login")}
             style={{
               width: "100%",
               borderRadius: 12,
-              border: "1px solid var(--accent-border)",
-              background: "var(--accent-bg)",
+              border: "1px solid var(--border-soft)",
+              background: "var(--surface-panel-soft)",
               color: "var(--text-primary)",
               padding: "12px 14px",
-              cursor: loading ? "not-allowed" : "pointer",
-              fontWeight: 800,
-              marginTop: 4,
-              opacity: loading ? 0.7 : 1,
+              fontWeight: 700,
             }}
           >
-            {loading ? "Connexion..." : "Se connecter"}
+            Connexion expediteur
           </button>
 
           {msg && (
@@ -142,3 +168,13 @@ export default function AdminLogin() {
     </div>
   );
 }
+
+const fieldStyle = {
+  width: "100%",
+  borderRadius: 12,
+  border: "1px solid var(--border-soft)",
+  background: "var(--surface-panel-soft)",
+  color: "var(--text-primary)",
+  padding: "12px 12px",
+  outline: "none",
+};

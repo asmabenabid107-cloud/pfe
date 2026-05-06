@@ -23,35 +23,72 @@ import re
 router = APIRouter()
 
 
-def _clean_phone(phone: str) -> str:
-    return (phone or "").replace(" ", "")
+def _validate_open_colis(value: str | None):
+    if value is None:
+        return
+    if value not in ("oui", "non"):
+        raise HTTPException(status_code=422, detail="Valeur ouvrir_colis_par_defaut invalide")
 
 
-def _validate_tn_phone(clean_phone: str):
+def _clean_phone(phone: str | None) -> str | None:
+    if phone is None:
+        return None
+    value = (phone or "").replace(" ", "").strip()
+    return value or None
+
+
+def _validate_tn_phone(clean_phone: str | None, *, required: bool = True):
+    if not clean_phone:
+        if required:
+            raise HTTPException(
+                status_code=422,
+                detail="Format telephone invalide. Exemple: +21612345678"
+            )
+        return
+
     if not re.match(r"^\+216\d{8}$", clean_phone):
         raise HTTPException(
             status_code=422,
-            detail="Format téléphone invalide. Exemple: +21612345678"
+            detail="Format telephone invalide. Exemple: +21612345678"
         )
+
+
+def _validate_gender(gender: str | None):
+    if gender is None:
+        return
+    if gender not in ("masculin", "feminin"):
+        raise HTTPException(status_code=422, detail="Genre invalide")
 
 
 def _create_user(db: Session, payload: RegisterRequest, role: str) -> User:
     clean_phone = _clean_phone(payload.phone)
-    _validate_tn_phone(clean_phone)
+    clean_phone2 = _clean_phone(payload.phone2)
+    _validate_tn_phone(clean_phone, required=True)
+    _validate_tn_phone(clean_phone2, required=False)
+    _validate_gender(payload.gender)
+    _validate_open_colis(payload.ouvrir_colis_par_defaut)
+
+    if clean_phone2 and clean_phone2 == clean_phone:
+        raise HTTPException(status_code=400, detail="Le deuxieme telephone doit etre different du premier")
 
     # unicité email
     if db.query(User).filter(User.email == payload.email).first():
         raise HTTPException(status_code=400, detail="Email déjà utilisé")
 
     # unicité phone
-    if db.query(User).filter(User.phone == clean_phone).first():
+    if clean_phone and db.query(User).filter(User.phone == clean_phone).first():
         raise HTTPException(status_code=400, detail="Téléphone déjà utilisé")
 
     u = User(
         name=payload.full_name,
         email=payload.email,
         phone=clean_phone,
+        phone2=clean_phone2,
         password_hash=hash_password(payload.password),
+        address=(payload.address or "").strip() or None,
+        city=(payload.city or "").strip() or None,
+        gender=payload.gender,
+        ouvrir_colis_par_defaut=payload.ouvrir_colis_par_defaut or "non",
         role=role,
         is_approved=False,
         is_active=True,
@@ -220,6 +257,11 @@ def get_me(current_user: User = Depends(get_current_user)):
         "name": current_user.name,
         "email": current_user.email,
         "phone": current_user.phone,
+        "phone2": current_user.phone2,
+        "address": current_user.address,
+        "city": current_user.city,
+        "gender": current_user.gender,
+        "ouvrir_colis_par_defaut": current_user.ouvrir_colis_par_defaut,
         "role": current_user.role,
         "is_approved": current_user.is_approved,
         "is_active": current_user.is_active,
@@ -249,9 +291,9 @@ def update_me(
             raise HTTPException(status_code=400, detail="Email déjà utilisé")
         current_user.email = payload.email
 
-    if payload.phone:
+    if payload.phone is not None:
         clean_phone = _clean_phone(payload.phone)
-        _validate_tn_phone(clean_phone)
+        _validate_tn_phone(clean_phone, required=True)
 
         if clean_phone != current_user.phone:
             phone_exists = db.query(User).filter(User.phone == clean_phone).first()
@@ -259,6 +301,29 @@ def update_me(
                 raise HTTPException(status_code=400, detail="Téléphone déjà utilisé")
 
         current_user.phone = clean_phone
+
+    if payload.phone2 is not None:
+        clean_phone2 = _clean_phone(payload.phone2)
+        _validate_tn_phone(clean_phone2, required=False)
+
+        if clean_phone2 and clean_phone2 == current_user.phone:
+            raise HTTPException(status_code=400, detail="Le deuxieme telephone doit etre different du premier")
+
+        current_user.phone2 = clean_phone2
+
+    if payload.address is not None:
+        current_user.address = payload.address.strip() or None
+
+    if payload.city is not None:
+        current_user.city = payload.city.strip() or None
+
+    if payload.gender is not None:
+        _validate_gender(payload.gender)
+        current_user.gender = payload.gender
+
+    if payload.ouvrir_colis_par_defaut is not None:
+        _validate_open_colis(payload.ouvrir_colis_par_defaut)
+        current_user.ouvrir_colis_par_defaut = payload.ouvrir_colis_par_defaut
 
     db.commit()
     db.refresh(current_user)
@@ -268,6 +333,11 @@ def update_me(
         "name": current_user.name,
         "email": current_user.email,
         "phone": current_user.phone,
+        "phone2": current_user.phone2,
+        "address": current_user.address,
+        "city": current_user.city,
+        "gender": current_user.gender,
+        "ouvrir_colis_par_defaut": current_user.ouvrir_colis_par_defaut,
         "role": current_user.role,
         "is_approved": current_user.is_approved,
         "is_active": current_user.is_active,

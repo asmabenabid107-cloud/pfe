@@ -31,19 +31,75 @@ function formatContractDate(value) {
   }).format(parsed);
 }
 
+function normalizeSearchValue(value) {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim();
+}
+
+function getLocalDateInputValue(offsetDays = 0) {
+  const date = new Date();
+  date.setDate(date.getDate() + offsetDays);
+
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+
+  return `${year}-${month}-${day}`;
+}
+
+function normalizeContractDate(value) {
+  const date = String(value || "").slice(0, 10);
+  return /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : "";
+}
+
+function isContractEndReached(value) {
+  const contractDate = normalizeContractDate(value);
+  return Boolean(contractDate && contractDate <= getLocalDateInputValue());
+}
+
+function isFutureContractDate(value) {
+  const contractDate = normalizeContractDate(value);
+  return Boolean(contractDate && contractDate > getLocalDateInputValue());
+}
+
+function getEffectiveCourierStatus(courier) {
+  if (isContractEndReached(courier.contract_end_date)) return "contract_ended";
+  return courier.courier_status || courier.manual_courier_status || "active";
+}
+
+function getEditableCourierStatus(courier) {
+  if (isContractEndReached(courier.contract_end_date)) return "contract_ended";
+  return courier.manual_courier_status || courier.courier_status || "active";
+}
+
+function needsRenewalContractDate(courier, nextStatus) {
+  return Boolean(courier && nextStatus !== "contract_ended" && getEffectiveCourierStatus(courier) === "contract_ended");
+}
+
+function isCourierAvailable(courier) {
+  return getEffectiveCourierStatus(courier) === "active" && courier.is_active !== false;
+}
+
 export default function LivreursApproved() {
   const navigate = useNavigate();
 
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [msg, setMsg] = useState("");
+  const [search, setSearch] = useState("");
+  const [availabilityFilter, setAvailabilityFilter] = useState("all");
   const [editTarget, setEditTarget] = useState(null);
   const [editMode, setEditMode] = useState(null);
   const [editForm, setEditForm] = useState({
     assigned_region: REGION_OPTIONS[0],
     courier_status: "active",
     contract_end_date: "",
+    new_contract_end_date: "",
   });
+  const [editError, setEditError] = useState("");
   const [savingEdit, setSavingEdit] = useState(false);
 
   async function load() {
@@ -66,20 +122,24 @@ export default function LivreursApproved() {
   function openRegionModal(courier) {
     setEditTarget(courier);
     setEditMode("region");
+    setEditError("");
     setEditForm({
       assigned_region: courier.assigned_region || REGION_OPTIONS[0],
-      courier_status: courier.manual_courier_status || courier.courier_status || "active",
+      courier_status: getEditableCourierStatus(courier),
       contract_end_date: courier.contract_end_date || "",
+      new_contract_end_date: "",
     });
   }
 
   function openStatusModal(courier) {
     setEditTarget(courier);
     setEditMode("status");
+    setEditError("");
     setEditForm({
       assigned_region: courier.assigned_region || REGION_OPTIONS[0],
-      courier_status: courier.manual_courier_status || courier.courier_status || "active",
+      courier_status: getEditableCourierStatus(courier),
       contract_end_date: courier.contract_end_date || "",
+      new_contract_end_date: "",
     });
   }
 
@@ -87,20 +147,28 @@ export default function LivreursApproved() {
     if (savingEdit) return;
     setEditTarget(null);
     setEditMode(null);
+    setEditError("");
   }
 
   async function saveCourierChanges() {
     if (!editTarget || !editMode) return;
 
+    const mustRenewContract = editMode === "status" && needsRenewalContractDate(editTarget, editForm.courier_status);
+    if (mustRenewContract && !isFutureContractDate(editForm.new_contract_end_date)) {
+      setEditError("Choisis une nouvelle date de fin de contrat future avant d'enregistrer.");
+      return;
+    }
+
     setSavingEdit(true);
     setMsg("");
+    setEditError("");
     try {
       const payload =
         editMode === "region"
           ? { assigned_region: editForm.assigned_region }
           : {
               courier_status: editForm.courier_status,
-              contract_end_date: editForm.contract_end_date || null,
+              ...(mustRenewContract ? { contract_end_date: editForm.new_contract_end_date } : {}),
             };
 
       await api.patch(`/admin/couriers/${editTarget.id}`, {
@@ -110,7 +178,7 @@ export default function LivreursApproved() {
       setEditMode(null);
       await load();
     } catch (err) {
-      setMsg(err?.response?.data?.detail || err?.message || "Erreur mise a jour.");
+      setEditError(err?.response?.data?.detail || err?.message || "Erreur mise a jour.");
     } finally {
       setSavingEdit(false);
     }
@@ -130,6 +198,22 @@ export default function LivreursApproved() {
   useEffect(() => {
     load();
   }, []);
+
+  const normalizedSearch = normalizeSearchValue(search);
+  const renewalMinDate = getLocalDateInputValue(1);
+  const availableCount = items.filter(isCourierAvailable).length;
+  const unavailableCount = items.length - availableCount;
+  const filteredItems = items.filter((courier) => {
+    const matchesSearch =
+      !normalizedSearch ||
+      [courier.name, courier.email, courier.phone].some((value) =>
+        normalizeSearchValue(value).includes(normalizedSearch),
+      );
+
+    if (availabilityFilter === "available") return matchesSearch && isCourierAvailable(courier);
+    if (availabilityFilter === "unavailable") return matchesSearch && !isCourierAvailable(courier);
+    return matchesSearch;
+  });
 
   return (
     <div style={{ padding: 18 }}>
@@ -152,7 +236,7 @@ export default function LivreursApproved() {
             Livreurs approuves
           </div>
           <div style={{ opacity: 0.78, fontSize: 13, marginTop: 4 }}>
-            Gere la region separement du statut et de la fin de contrat.
+            Gere la region et le statut. La date de fin de contrat definie a l'approbation est verrouillee.
           </div>
         </div>
 
@@ -193,6 +277,47 @@ export default function LivreursApproved() {
         </div>
       </div>
 
+      <div
+        style={{
+          marginTop: 12,
+          display: "flex",
+          gap: 10,
+          flexWrap: "wrap",
+          alignItems: "center",
+        }}
+      >
+        <input
+          value={search}
+          onChange={(event) => setSearch(event.target.value)}
+          placeholder="Rechercher par email ou numero..."
+          style={{ ...fieldStyle, flex: "1 1 280px", minWidth: 220 }}
+        />
+
+        <select
+          value={availabilityFilter}
+          onChange={(event) => setAvailabilityFilter(event.target.value)}
+          style={{ ...fieldStyle, width: 220 }}
+        >
+          <option value="all">Tous les livreurs</option>
+          <option value="available">Disponibles</option>
+          <option value="unavailable">Non disponibles</option>
+        </select>
+
+        <div
+          style={{
+            padding: "12px 14px",
+            borderRadius: 12,
+            border: "1px solid var(--border-soft)",
+            background: "var(--surface-card)",
+            color: "var(--text-secondary)",
+            fontSize: 12,
+            minWidth: 220,
+          }}
+        >
+          {filteredItems.length} resultat(s) • {availableCount} disponibles • {unavailableCount} non disponibles
+        </div>
+      </div>
+
       {msg && (
         <div
           style={{
@@ -222,16 +347,29 @@ export default function LivreursApproved() {
           >
             Aucun livreur approuve.
           </div>
+        ) : filteredItems.length === 0 ? (
+          <div
+            style={{
+              padding: 16,
+              borderRadius: 18,
+              border: "1px solid var(--border-soft)",
+              background: "var(--surface-panel-soft)",
+              opacity: 0.9,
+            }}
+          >
+            Aucun livreur ne correspond a cette recherche.
+          </div>
         ) : (
           <div style={{ display: "grid", gap: 12 }}>
-            {items.map((u) => {
-              const statusMeta = getCourierStatusMeta(u.courier_status || "active");
+            {filteredItems.map((u) => {
+              const effectiveStatus = getEffectiveCourierStatus(u);
+              const statusMeta = getCourierStatusMeta(effectiveStatus);
               const accessLabel =
-                (u.courier_status || "active") === "active"
-                  ? "Compte accessible"
-                  : (u.courier_status || "active") === "temporary_leave"
-                    ? "Compte en pause"
-                    : "Compte bloque";
+                isCourierAvailable(u)
+                  ? "Disponible"
+                  : effectiveStatus === "temporary_leave"
+                    ? "Non disponible - en pause"
+                    : "Non disponible - compte bloque";
 
               return (
                 <div
@@ -316,10 +454,10 @@ export default function LivreursApproved() {
                         padding: "10px 14px",
                         fontWeight: 950,
                         cursor: "pointer",
-                        minWidth: 180,
+                        minWidth: 160,
                       }}
                     >
-                      Statut et contrat
+                      Modifier statut
                     </button>
 
                     <button
@@ -367,7 +505,7 @@ export default function LivreursApproved() {
               }}
             >
             <div style={{ fontSize: 20, fontWeight: 900 }}>
-              {editMode === "region" ? "Modifier la region" : "Modifier statut et contrat"}
+              {editMode === "region" ? "Modifier la region" : "Modifier le statut"}
             </div>
             <div style={{ marginTop: 6, opacity: 0.74, fontSize: 13 }}>
               {editMode === "region" ? (
@@ -376,12 +514,26 @@ export default function LivreursApproved() {
                 </>
               ) : (
                 <>
-                  Mets a jour le statut et la fin de contrat de <strong>{editTarget.name}</strong>.
+                  Mets a jour le statut de <strong>{editTarget.name}</strong>. La date de fin de contrat reste fixe.
                 </>
               )}
             </div>
 
             <div style={{ display: "grid", gap: 14, marginTop: 16 }}>
+              {editError && (
+                <div
+                  style={{
+                    padding: 12,
+                    borderRadius: 12,
+                    border: "1px solid var(--danger-border)",
+                    background: "var(--danger-bg)",
+                    fontWeight: 800,
+                  }}
+                >
+                  {editError}
+                </div>
+              )}
+
               {editMode === "region" ? (
                 <div>
                   <div style={{ fontSize: 12, opacity: 0.75, marginBottom: 6 }}>Region assignee</div>
@@ -406,7 +558,12 @@ export default function LivreursApproved() {
                     <select
                       value={editForm.courier_status}
                       onChange={(e) =>
-                        setEditForm((prev) => ({ ...prev, courier_status: e.target.value }))
+                        setEditForm((prev) => ({
+                          ...prev,
+                          courier_status: e.target.value,
+                          new_contract_end_date:
+                            e.target.value === "contract_ended" ? "" : prev.new_contract_end_date,
+                        }))
                       }
                       style={fieldStyle}
                     >
@@ -422,20 +579,42 @@ export default function LivreursApproved() {
                     </select>
                   </div>
 
-                  <div>
-                    <div style={{ fontSize: 12, opacity: 0.75, marginBottom: 6 }}>Fin de contrat</div>
-                    <input
-                      type="date"
-                      value={editForm.contract_end_date}
-                      onChange={(e) =>
-                        setEditForm((prev) => ({ ...prev, contract_end_date: e.target.value }))
-                      }
-                      style={fieldStyle}
-                    />
+                  <div
+                    style={{
+                      padding: "12px 14px",
+                      borderRadius: 12,
+                      border: "1px solid var(--border-soft)",
+                      background: "var(--surface-card)",
+                    }}
+                  >
+                    <div style={{ fontSize: 12, opacity: 0.75, marginBottom: 6 }}>Fin de contrat fixee</div>
+                    <div style={{ fontWeight: 800, color: "var(--text-primary)" }}>
+                      {formatContractDate(editTarget.contract_end_date)}
+                    </div>
                     <div style={{ marginTop: 6, fontSize: 12, opacity: 0.6 }}>
-                      Si la date est depassee, le statut passe automatiquement a Contrat termine.
+                      A cette date, le statut passera automatiquement a Contrat termine.
                     </div>
                   </div>
+
+                  {needsRenewalContractDate(editTarget, editForm.courier_status) && (
+                    <div>
+                      <div style={{ fontSize: 12, opacity: 0.75, marginBottom: 6 }}>
+                        Nouvelle fin de contrat
+                      </div>
+                      <input
+                        type="date"
+                        value={editForm.new_contract_end_date}
+                        min={renewalMinDate}
+                        onChange={(e) =>
+                          setEditForm((prev) => ({ ...prev, new_contract_end_date: e.target.value }))
+                        }
+                        style={fieldStyle}
+                      />
+                      <div style={{ marginTop: 6, fontSize: 12, opacity: 0.6 }}>
+                        Requis pour renouveler le contrat et sortir de Contrat termine.
+                      </div>
+                    </div>
+                  )}
                 </>
               )}
             </div>
