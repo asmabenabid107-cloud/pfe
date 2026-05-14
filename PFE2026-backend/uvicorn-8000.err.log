@@ -1,0 +1,6 @@
+INFO:     Started server process [22836]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+C:\Users\Dell\Desktop\pfe version IA\PFE2026-backend\app\api\routes\admin_tournees.py:176: SAWarning: Coercing Subquery object into a select() for use in IN(); please pass a select() construct explicitly
+  User.email != "admin@mz.com",
