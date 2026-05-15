@@ -4,6 +4,7 @@ import '../core/api.dart';
 import '../core/storage.dart';
 import '../theme/theme_controller.dart';
 import '../widgets/global_theme_toggle.dart';
+import 'tournee_map_screen.dart';
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -44,7 +45,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
           "/courier/colis/assigned",
           withAuth: true,
         );
+
         nextAssigned = _readList(assignedData);
+
+        if (nextAssigned.isNotEmpty) {
+          debugPrint("FIRST COLIS KEYS: ${nextAssigned.first.keys.toList()}");
+          debugPrint("FIRST COLIS DATA: ${nextAssigned.first}");
+        }
       } on ApiException catch (e) {
         if (e.statusCode == 401 || e.statusCode == 403) {
           rethrow;
@@ -60,9 +67,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
     } on ApiException catch (e) {
       if (e.statusCode == 401 || e.statusCode == 403) {
         await Storage.clearToken();
-        if (!mounted) {
-          return;
-        }
+        if (!mounted) return;
+
         Navigator.pushNamedAndRemoveUntil(
           context,
           "/login",
@@ -71,6 +77,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         );
         return;
       }
+
       setState(() => msg = e.message);
     } finally {
       if (mounted) {
@@ -84,21 +91,36 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   List<Map<String, dynamic>> _readList(Map<String, dynamic> response) {
     final raw = response["data"];
-    if (raw is! List) {
-      return [];
+
+    if (raw is List) {
+      return raw
+          .whereType<Map>()
+          .map((item) => Map<String, dynamic>.from(item))
+          .toList();
     }
 
-    return raw
-        .whereType<Map>()
-        .map((item) => Map<String, dynamic>.from(item))
-        .toList();
+    final colis = response["colis"];
+    if (colis is List) {
+      return colis
+          .whereType<Map>()
+          .map((item) => Map<String, dynamic>.from(item))
+          .toList();
+    }
+
+    final items = response["items"];
+    if (items is List) {
+      return items
+          .whereType<Map>()
+          .map((item) => Map<String, dynamic>.from(item))
+          .toList();
+    }
+
+    return [];
   }
 
   Future<void> logout() async {
     await Storage.clearToken();
-    if (!mounted) {
-      return;
-    }
+    if (!mounted) return;
     Navigator.pushNamedAndRemoveUntil(context, "/", (_) => false);
   }
 
@@ -217,10 +239,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
     return "En attente";
   }
 
-
-
-
-
   Color _assignedParcelColor(Map<String, dynamic> item) {
     final statut = (item["statut"]?.toString() ?? "").toLowerCase();
     final stage = (item["tracking_stage"]?.toString() ?? "").toLowerCase();
@@ -232,20 +250,21 @@ class _DashboardScreenState extends State<DashboardScreen> {
         stage == "return_pending" ||
         stage.contains("return") ||
         statut.contains("retour")) {
-      return const Color(0xFFE53935); // red
+      return const Color(0xFFE53935);
     }
 
     if (deliveredAt.isNotEmpty ||
         stage == "delivered" ||
         statut.contains("livr")) {
-      return const Color(0xFF31C476); // green
+      return const Color(0xFF31C476);
     }
 
-    return const Color(0xFFF0A81A); // orange
+    return const Color(0xFFF0A81A);
   }
 
   String _parcelStageLabel(String? stage) {
     final raw = (stage ?? "").toLowerCase();
+
     if (raw == "return_pending") return "Depot retour expediteur";
     if (raw == "returned") return "Retour confirme";
     if (raw.contains("return")) return "Retour expediteur";
@@ -258,19 +277,19 @@ class _DashboardScreenState extends State<DashboardScreen> {
     }
     if (raw == "at_warehouse" || raw.contains("warehouse")) return "Au depot";
     if (raw == "delivered" || raw.contains("deliver")) return "Livre";
+
     return "En attente";
   }
 
   String _formatDateTime(String? value) {
-    if (value == null || value.trim().isEmpty) {
-      return "-";
-    }
+    if (value == null || value.trim().isEmpty) return "-";
+
     final parsed = DateTime.tryParse(value);
-    if (parsed == null) {
-      return value;
-    }
+    if (parsed == null) return value;
+
     final local = parsed.toLocal();
     String twoDigits(int input) => input.toString().padLeft(2, "0");
+
     return "${twoDigits(local.day)}/${twoDigits(local.month)}/${local.year} "
         "${twoDigits(local.hour)}:${twoDigits(local.minute)}";
   }
@@ -278,11 +297,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
   String _parcelCode(Map<String, dynamic> item) {
     final barcode = item["barcode_value"]?.toString().trim() ?? "";
     if (barcode.isNotEmpty) return barcode;
+
     return item["numero_suivi"]?.toString().trim() ?? "";
   }
 
   void _openAssignedColis(Map<String, dynamic> item) {
     final code = _parcelCode(item);
+
     if (code.isEmpty) {
       setState(() => assignedMsg = "Code colis introuvable.");
       return;
@@ -291,7 +312,179 @@ class _DashboardScreenState extends State<DashboardScreen> {
     Navigator.pushNamed(
       context,
       "/colis-action?code=${Uri.encodeQueryComponent(code)}",
-      arguments: {"code": code, "colis": item},
+      arguments: {
+        "code": code,
+        "colis": item,
+      },
+    );
+  }
+
+  double? _toDouble(dynamic value) {
+    if (value == null) return null;
+    if (value is num) return value.toDouble();
+    return double.tryParse(value.toString());
+  }
+
+  String _firstText(List<dynamic> values, {String fallback = ""}) {
+    for (final value in values) {
+      final text = value?.toString().trim() ?? "";
+      if (text.isNotEmpty && text != "null") {
+        return text;
+      }
+    }
+    return fallback;
+  }
+
+  Map<String, dynamic> _depotForLivreur() {
+    final rawRegion = _firstText([
+      me?["assigned_region"],
+      me?["region"],
+      me?["gouvernorat"],
+    ]).toLowerCase();
+
+    if (rawRegion.contains("sousse")) {
+      return {
+        "label": "Depot Sousse",
+        "adresse": "Sousse, Tunisie",
+        "latitude": 35.77005959180682,
+        "longitude": 10.594931528518906,
+        "depot_depart": "sousse",
+      };
+    }
+
+    if (rawRegion.contains("kairouan")) {
+      return {
+        "label": "Depot Kairouan",
+        "adresse": "Kairouan, Tunisie",
+        "latitude": 35.68779123889766,
+        "longitude": 10.083732874866017,
+        "depot_depart": "kairouan",
+      };
+    }
+
+    return {
+      "label": "Depot",
+      "adresse": "",
+      "latitude": null,
+      "longitude": null,
+      "depot_depart": rawRegion,
+    };
+  }
+
+  void _openPlanificationMap() {
+    if (assignedColis.isEmpty) {
+      setState(() {
+        assignedMsg = "Aucun colis affecte pour afficher la carte.";
+      });
+      return;
+    }
+
+    final depot = _depotForLivreur();
+    final stops = <Map<String, dynamic>>[];
+
+    for (var i = 0; i < assignedColis.length; i++) {
+      final colis = assignedColis[i];
+
+      final lat = _toDouble(
+        colis["latitude"] ??
+            colis["lat"] ??
+            colis["client_latitude"] ??
+            colis["destination_latitude"] ??
+            colis["destinataire_latitude"] ??
+            colis["adresse_latitude"] ??
+            colis["latitude_livraison"] ??
+            colis["livraison_latitude"] ??
+            colis["lat_livraison"] ??
+            colis["gps_lat"] ??
+            colis["gps_latitude"] ??
+            colis["coord_lat"] ??
+            colis["coordonnees_latitude"],
+      );
+
+      final lng = _toDouble(
+        colis["longitude"] ??
+            colis["lng"] ??
+            colis["lon"] ??
+            colis["client_longitude"] ??
+            colis["destination_longitude"] ??
+            colis["destinataire_longitude"] ??
+            colis["adresse_longitude"] ??
+            colis["longitude_livraison"] ??
+            colis["livraison_longitude"] ??
+            colis["lng_livraison"] ??
+            colis["lon_livraison"] ??
+            colis["gps_lng"] ??
+            colis["gps_longitude"] ??
+            colis["coord_lng"] ??
+            colis["coordonnees_longitude"],
+      );
+
+      debugPrint(
+        "COLIS GPS CHECK id=${colis["id"]} lat=$lat lng=$lng keys=${colis.keys.toList()}",
+      );
+
+      if (lat == null || lng == null) {
+        continue;
+      }
+
+      stops.add({
+        "ordre": int.tryParse("${colis["ordre"] ?? i + 1}") ?? i + 1,
+        "colis_id": colis["id"],
+        "numero_suivi": _firstText([
+          colis["numero_suivi"],
+          colis["barcode_value"],
+          colis["code"],
+        ]),
+        "adresse": _firstText([
+          colis["adresse"],
+          colis["adresse_livraison"],
+          colis["rue"],
+        ], fallback: "Adresse non definie"),
+        "latitude": lat,
+        "longitude": lng,
+        "nom_destinataire": _firstText([
+          colis["nom_destinataire"],
+          colis["destinataire"],
+          colis["client_name"],
+        ]),
+        "telephone_destinataire": _firstText([
+          colis["telephone_destinataire"],
+          colis["phone_destinataire"],
+          colis["telephone"],
+          colis["phone"],
+        ]),
+        "poids": colis["poids"],
+        "tracking_stage": colis["tracking_stage"],
+      });
+    }
+
+    if (stops.isEmpty) {
+      setState(() {
+        assignedMsg =
+            "Aucun colis avec coordonnees GPS. Verifie la console: FIRST COLIS KEYS.";
+      });
+      return;
+    }
+
+    final tourneeJson = {
+      "id": DateTime.now().millisecondsSinceEpoch,
+      "nom": "Ma tournee",
+      "depot_depart": depot["depot_depart"],
+      "depot_label": depot["label"],
+      "depot_adresse": depot["adresse"],
+      "depot_latitude": depot["latitude"],
+      "depot_longitude": depot["longitude"],
+      "nombre_colis": stops.length,
+      "stops": stops,
+    };
+
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => TourneeMapScreen(
+          tournee: tourneeJson,
+        ),
+      ),
     );
   }
 
@@ -308,6 +501,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     final day = parsed.day.toString().padLeft(2, '0');
     final month = parsed.month.toString().padLeft(2, '0');
     final year = parsed.year.toString();
+
     return "$day/$month/$year";
   }
 
@@ -315,17 +509,22 @@ class _DashboardScreenState extends State<DashboardScreen> {
   Widget build(BuildContext context) {
     final palette = _DashboardPalette.of(context);
     final theme = Theme.of(context);
+
     final name = me?["name"]?.toString().trim().isNotEmpty == true
         ? me!["name"].toString().trim()
         : "Livreur";
+
     final email = me?["email"]?.toString() ?? "-";
     final phone = me?["phone"]?.toString() ?? "-";
     final region = me?["assigned_region"]?.toString().trim();
+
     final status = me?["courier_status"]?.toString().trim().isNotEmpty == true
         ? me!["courier_status"].toString()
         : "active";
+
     final contractEndDate = _formatDate(me?["contract_end_date"]?.toString());
     final statusLabel = _statusLabel(status);
+
     final firstLetter = name.isNotEmpty
         ? name.substring(0, 1).toUpperCase()
         : "L";
@@ -384,7 +583,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         ),
                       ],
                     ),
+
                     const SizedBox(height: 18),
+
                     if (msg.isNotEmpty) ...[
                       Container(
                         padding: const EdgeInsets.all(12),
@@ -404,6 +605,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       ),
                       const SizedBox(height: 14),
                     ],
+
                     Container(
                       padding: const EdgeInsets.all(14),
                       decoration: BoxDecoration(
@@ -444,7 +646,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                           IconButton(
                             onPressed: loadMe,
                             icon: Icon(
-                              Icons.close_rounded,
+                              Icons.refresh_rounded,
                               color: palette.muted,
                             ),
                             splashRadius: 18,
@@ -452,55 +654,80 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         ],
                       ),
                     ),
+
                     const SizedBox(height: 18),
-                    GridView.count(
-                      crossAxisCount: 2,
-                      crossAxisSpacing: 12,
-                      mainAxisSpacing: 12,
-                      shrinkWrap: true,
-                      physics: const NeverScrollableScrollPhysics(),
-                      childAspectRatio: 1.08,
-                      children: [
-                        _QuickCard(
-                          icon: Icons.assignment_outlined,
-                          iconColor: const Color(0xFF4ED2A8),
-                          title: "Mon profil",
-                          subtitle: "Modifier mes donnees",
-                          onTap: () => Navigator.pushNamed(context, "/profile"),
-                        ),
-                        _QuickCard(
-                          icon: Icons.event_note_outlined,
-                          iconColor: const Color(0xFF398BFF),
-                          title: "Mes conges",
-                          subtitle: "Demandes et historique",
-                          onTap: () => Navigator.pushNamed(context, "/conges"),
-                        ),
-                        _QuickCard(
-                          icon: Icons.map_outlined,
-                          iconColor: const Color(0xFFFE8B65),
-                          title: "Region",
-                          subtitle: region != null && region.isNotEmpty
-                              ? region
-                              : "Non assignee",
-                          onTap: () => Navigator.pushNamed(context, "/profile"),
-                        ),
-                        _QuickCard(
-                          icon: Icons.verified_user_outlined,
-                          iconColor: _statusColor(status),
-                          title: "Statut",
-                          subtitle: statusLabel,
-                          onTap: () => Navigator.pushNamed(context, "/conges"),
-                        ),
-                        _QuickCard(
-                          icon: Icons.qr_code_scanner_rounded,
-                          iconColor: const Color(0xFF9B87F5),
-                          title: "Scanner colis",
-                          subtitle: "En transit, livre, a relivrer ou retour",
-                          onTap: () => Navigator.pushNamed(context, "/scan"),
-                        ),
-                      ],
+
+                    LayoutBuilder(
+                      builder: (context, constraints) {
+                        final isSmall = constraints.maxWidth < 520;
+
+                        return GridView.count(
+                          crossAxisCount: 2,
+                          crossAxisSpacing: 12,
+                          mainAxisSpacing: 12,
+                          shrinkWrap: true,
+                          physics: const NeverScrollableScrollPhysics(),
+                          childAspectRatio: isSmall ? 0.88 : 1.05,
+                          children: [
+                            _QuickCard(
+                              icon: Icons.assignment_outlined,
+                              iconColor: const Color(0xFF4ED2A8),
+                              title: "Mon profil",
+                              subtitle: "Modifier mes donnees",
+                              onTap: () =>
+                                  Navigator.pushNamed(context, "/profile"),
+                            ),
+                            _QuickCard(
+                              icon: Icons.event_note_outlined,
+                              iconColor: const Color(0xFF398BFF),
+                              title: "Mes conges",
+                              subtitle: "Demandes et historique",
+                              onTap: () =>
+                                  Navigator.pushNamed(context, "/conges"),
+                            ),
+                            _QuickCard(
+                              icon: Icons.route_outlined,
+                              iconColor: const Color(0xFFFE8B65),
+                              title: "Planification",
+                              subtitle: assignedLoading
+                                  ? "Chargement..."
+                                  : "${assignedColis.length} colis affectes",
+                              onTap: assignedLoading
+                                  ? () {}
+                                  : _openPlanificationMap,
+                            ),
+                            _QuickCard(
+                              icon: Icons.map_outlined,
+                              iconColor: const Color(0xFFFE8B65),
+                              title: "Region",
+                              subtitle: region != null && region.isNotEmpty
+                                  ? region
+                                  : "Non assignee",
+                              onTap: () =>
+                                  Navigator.pushNamed(context, "/profile"),
+                            ),
+                            _QuickCard(
+                              icon: Icons.verified_user_outlined,
+                              iconColor: _statusColor(status),
+                              title: "Statut",
+                              subtitle: statusLabel,
+                              onTap: () =>
+                                  Navigator.pushNamed(context, "/conges"),
+                            ),
+                            _QuickCard(
+                              icon: Icons.qr_code_scanner_rounded,
+                              iconColor: const Color(0xFF9B87F5),
+                              title: "Scanner colis",
+                              subtitle: "En transit, livre, a relivrer ou retour",
+                              onTap: () => Navigator.pushNamed(context, "/scan"),
+                            ),
+                          ],
+                        );
+                      },
                     ),
+
                     const SizedBox(height: 18),
+
                     Container(
                       padding: const EdgeInsets.all(18),
                       decoration: BoxDecoration(
@@ -519,9 +746,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                 height: 44,
                                 decoration: BoxDecoration(
                                   borderRadius: BorderRadius.circular(15),
-                                  color: const Color(
-                                    0xFF4ED2A8,
-                                  ).withValues(alpha: 0.12),
+                                  color: const Color(0xFF4ED2A8)
+                                      .withValues(alpha: 0.12),
                                 ),
                                 child: const Icon(
                                   Icons.inventory_2_outlined,
@@ -563,7 +789,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
                               ),
                             ],
                           ),
+
                           const SizedBox(height: 16),
+
                           if (assignedLoading)
                             const Center(
                               child: Padding(
@@ -577,7 +805,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                               positive: false,
                             )
                           else if (assignedColis.isEmpty)
-                            _DashboardMessage(
+                            const _DashboardMessage(
                               text: "Aucun colis affecte pour le moment.",
                               positive: true,
                             )
@@ -597,13 +825,19 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                         assignedColis[i]["statut"]?.toString(),
                                       ),
                                       stageLabel: _parcelStageLabel(
-                                        assignedColis[i]["tracking_stage"]?.toString(),
+                                        assignedColis[i]["tracking_stage"]
+                                            ?.toString(),
                                       ),
                                       dateLabel: _formatDateTime(
-                                        assignedColis[i]["out_for_delivery_at"]?.toString(),
+                                        assignedColis[i]["out_for_delivery_at"]
+                                            ?.toString(),
                                       ),
-                                      statusColor: _assignedParcelColor(assignedColis[i]),
-                                      onTap: () => _openAssignedColis(assignedColis[i]),
+                                      statusColor: _assignedParcelColor(
+                                        assignedColis[i],
+                                      ),
+                                      onTap: () => _openAssignedColis(
+                                        assignedColis[i],
+                                      ),
                                     ),
                                   ),
                               ],
@@ -611,7 +845,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         ],
                       ),
                     ),
+
                     const SizedBox(height: 18),
+
                     Container(
                       padding: const EdgeInsets.all(18),
                       decoration: BoxDecoration(
@@ -652,7 +888,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
                               ),
                             ],
                           ),
+
                           const SizedBox(height: 18),
+
                           Row(
                             children: [
                               Expanded(
@@ -667,7 +905,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
                               ),
                             ],
                           ),
+
                           const SizedBox(height: 10),
+
                           Row(
                             children: [
                               Expanded(
@@ -685,7 +925,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
                               ),
                             ],
                           ),
+
                           const SizedBox(height: 18),
+
                           Container(
                             width: double.infinity,
                             padding: const EdgeInsets.all(14),
@@ -732,9 +974,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                             vertical: 12,
                                           ),
                                           shape: RoundedRectangleBorder(
-                                            borderRadius: BorderRadius.circular(
-                                              14,
-                                            ),
+                                            borderRadius:
+                                                BorderRadius.circular(14),
                                           ),
                                         ),
                                         child: const Text(
@@ -761,9 +1002,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                             vertical: 12,
                                           ),
                                           shape: RoundedRectangleBorder(
-                                            borderRadius: BorderRadius.circular(
-                                              14,
-                                            ),
+                                            borderRadius:
+                                                BorderRadius.circular(14),
                                           ),
                                         ),
                                         child: const Text(
@@ -932,7 +1172,7 @@ class _QuickCard extends StatelessWidget {
         onTap: onTap,
         borderRadius: BorderRadius.circular(18),
         child: Ink(
-          padding: const EdgeInsets.all(16),
+          padding: const EdgeInsets.all(14),
           decoration: BoxDecoration(
             color: Theme.of(context).cardColor,
             borderRadius: BorderRadius.circular(18),
@@ -951,34 +1191,49 @@ class _QuickCard extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Container(
-                width: 42,
-                height: 42,
+                width: 38,
+                height: 38,
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
                   color: iconColor.withValues(alpha: 0.10),
-                  border: Border.all(color: iconColor.withValues(alpha: 0.16)),
+                  border: Border.all(
+                    color: iconColor.withValues(alpha: 0.16),
+                  ),
                 ),
-                child: Icon(icon, color: iconColor),
+                child: Icon(
+                  icon,
+                  color: iconColor,
+                  size: 22,
+                ),
               ),
               const Spacer(),
-              Text(
-                title,
-                style: TextStyle(
-                  color: isDark
-                      ? const Color(0xFFF2F4FB)
-                      : const Color(0xFF222430),
-                  fontSize: 18,
-                  fontWeight: FontWeight.w900,
+              FittedBox(
+                fit: BoxFit.scaleDown,
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  title,
+                  maxLines: 1,
+                  style: TextStyle(
+                    color: isDark
+                        ? const Color(0xFFF2F4FB)
+                        : const Color(0xFF222430),
+                    fontSize: 17,
+                    fontWeight: FontWeight.w900,
+                  ),
                 ),
               ),
               const SizedBox(height: 4),
               Text(
                 subtitle,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
                 style: TextStyle(
                   color: isDark
                       ? const Color(0xFFA7B0C8)
                       : const Color(0xFF9094A8),
+                  fontSize: 13,
                   fontWeight: FontWeight.w600,
+                  height: 1.2,
                 ),
               ),
             ],
@@ -993,7 +1248,10 @@ class _InfoBox extends StatelessWidget {
   final String title;
   final String value;
 
-  const _InfoBox({required this.title, required this.value});
+  const _InfoBox({
+    required this.title,
+    required this.value,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -1032,7 +1290,10 @@ class _InfoBox extends StatelessWidget {
 }
 
 class _DashboardMessage extends StatelessWidget {
-  const _DashboardMessage({required this.text, required this.positive});
+  const _DashboardMessage({
+    required this.text,
+    required this.positive,
+  });
 
   final String text;
   final bool positive;
@@ -1040,12 +1301,15 @@ class _DashboardMessage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
+
     final bg = positive
         ? (isDark ? const Color(0xFF173025) : const Color(0xFFEAF8EF))
         : const Color(0xFFFFF1F1);
+
     final border = positive
         ? (isDark ? const Color(0xFF24523C) : const Color(0xFFCDE9D7))
         : const Color(0xFFFFD1D1);
+
     final textColor = positive
         ? const Color(0xFF2E8F5B)
         : const Color(0xFFB44A4A);
@@ -1060,7 +1324,10 @@ class _DashboardMessage extends StatelessWidget {
       ),
       child: Text(
         text,
-        style: TextStyle(color: textColor, fontWeight: FontWeight.w800),
+        style: TextStyle(
+          color: textColor,
+          fontWeight: FontWeight.w800,
+        ),
       ),
     );
   }
@@ -1068,27 +1335,29 @@ class _DashboardMessage extends StatelessWidget {
 
 class _AssignedParcelTile extends StatelessWidget {
   const _AssignedParcelTile({
-  required this.item,
-  required this.statusLabel,
-  required this.stageLabel,
-  required this.dateLabel,
-  required this.statusColor,
-  required this.onTap,
-});
+    required this.item,
+    required this.statusLabel,
+    required this.stageLabel,
+    required this.dateLabel,
+    required this.statusColor,
+    required this.onTap,
+  });
 
-final Map<String, dynamic> item;
-final String statusLabel;
-final String stageLabel;
-final String dateLabel;
-final Color statusColor;
-final VoidCallback onTap;
+  final Map<String, dynamic> item;
+  final String statusLabel;
+  final String stageLabel;
+  final String dateLabel;
+  final Color statusColor;
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
     final palette = _DashboardPalette.of(context);
     final numero = item["numero_suivi"]?.toString() ?? "-";
     final destinataire = item["nom_destinataire"]?.toString() ?? "-";
-    final adresse = item["adresse_livraison"]?.toString() ?? "-";
+    final adresse = item["adresse_livraison"]?.toString() ??
+        item["adresse"]?.toString() ??
+        "-";
     final ordre = item["ordre"]?.toString() ?? "";
 
     return Material(
@@ -1109,17 +1378,17 @@ final VoidCallback onTap;
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Container(
-  width: 42,
-  height: 42,
-  decoration: BoxDecoration(
-    borderRadius: BorderRadius.circular(14),
-    color: statusColor.withValues(alpha: 0.12),
-  ),
-  child: Icon(
-    Icons.local_shipping_outlined,
-    color: statusColor,
-  ),
-),
+                width: 42,
+                height: 42,
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(14),
+                  color: statusColor.withValues(alpha: 0.12),
+                ),
+                child: Icon(
+                  Icons.local_shipping_outlined,
+                  color: statusColor,
+                ),
+              ),
               const SizedBox(width: 12),
               Expanded(
                 child: Column(
@@ -1157,7 +1426,10 @@ final VoidCallback onTap;
                       adresse,
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
-                      style: TextStyle(color: palette.muted, height: 1.25),
+                      style: TextStyle(
+                        color: palette.muted,
+                        height: 1.25,
+                      ),
                     ),
                     const SizedBox(height: 10),
                     Wrap(
@@ -1174,7 +1446,10 @@ final VoidCallback onTap;
                 ),
               ),
               const SizedBox(width: 8),
-              Icon(Icons.chevron_right_rounded, color: palette.muted),
+              Icon(
+                Icons.chevron_right_rounded,
+                color: palette.muted,
+              ),
             ],
           ),
         ),
@@ -1265,7 +1540,10 @@ class _MenuTile extends StatelessWidget {
                       ? const Color(0xFF251F42)
                       : const Color(0xFFEDE6FF),
                 ),
-                child: Icon(icon, color: palette.accent),
+                child: Icon(
+                  icon,
+                  color: palette.accent,
+                ),
               ),
               const SizedBox(width: 12),
               Expanded(
@@ -1282,12 +1560,18 @@ class _MenuTile extends StatelessWidget {
                     const SizedBox(height: 4),
                     Text(
                       subtitle,
-                      style: TextStyle(color: palette.muted, height: 1.3),
+                      style: TextStyle(
+                        color: palette.muted,
+                        height: 1.3,
+                      ),
                     ),
                   ],
                 ),
               ),
-              Icon(Icons.chevron_right_rounded, color: palette.muted),
+              Icon(
+                Icons.chevron_right_rounded,
+                color: palette.muted,
+              ),
             ],
           ),
         ),

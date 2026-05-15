@@ -174,6 +174,8 @@ class ColisCourierAssignedItemResponse(ColisCourierActionResponse):
     tournee_region: Optional[str] = None
     ordre: int = 0
     remaining_issue_days: int = 0
+    latitude: float | None = None
+    longitude: float | None = None
     
-    class Config:              # ← ADD THIS
+    class Config:
         from_attributes = True

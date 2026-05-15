@@ -125,6 +125,8 @@ def _serialize_assigned_item(link: TourneeColis) -> ColisCourierAssignedItemResp
         adresse_livraison=colis.adresse_livraison,
         poids=colis.poids,
         depot_depart=colis.depot_depart,
+        latitude=colis.latitude,
+        longitude=colis.longitude,
         statut=colis.statut,
         tracking_stage=colis.tracking_stage,
         detail="Colis affecte au livreur.",
