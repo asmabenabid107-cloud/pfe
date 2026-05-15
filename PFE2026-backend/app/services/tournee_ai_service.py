@@ -31,7 +31,7 @@ DEPOTS = {
 
 
 MIN_COLIS_POUR_TOURNEE = 30
-MAX_COLIS_PAR_TOURNEE = 200
+MAX_COLIS_PAR_TOURNEE = 300
 MAX_GOUVERNORATS_PAR_TOURNEE = 4
 MAX_GOV_DISTANCE_IN_TOURNEE_KM = 140
 MAX_CLUSTER_DISTANCE_KM = 80
@@ -540,16 +540,16 @@ def create_agglomerative_model(distance_threshold):
             distance_threshold=distance_threshold,
         )
 PREFERRED_GOV_GROUPS = [
-    # Grand Tunis - منطقي جدًا مع بعضهم
+    # Grand Tunis - 
     ["Tunis", "Ariana", "Ben Arous", "Manouba"],
 
-    # Cap Bon / Nord-Est قريبين لوجيستيًا
+    # Cap Bon / Nord-Est 
     ["Nabeul", "Zaghouan"],
 
     # Sahel - لازم مع بعض
     ["Sousse", "Monastir", "Mahdia"],
 
-    # Nord - Bizerte أقرب لتونس/الشمال موش للنابل
+    # Nord - Bizerte  /  
     ["Bizerte", "Béja"],
 
     # Nord-Ouest
@@ -784,7 +784,77 @@ def merge_preferred_governorate_groups(zones, vehicle_capacity):
 
     return zones
 
+def get_preferred_group_key(gouvernorat):
+    gouvernorat = clean_region(gouvernorat)
 
+    for index, group in enumerate(PREFERRED_GOV_GROUPS):
+        cleaned_group = [clean_region(g) for g in group]
+
+        if gouvernorat in cleaned_group:
+            return index
+
+    return f"solo_{gouvernorat}"
+
+
+def get_ordered_gouvernorats_for_group(group_key, gov_map):
+    if isinstance(group_key, int):
+        ordered = [
+            clean_region(g)
+            for g in PREFERRED_GOV_GROUPS[group_key]
+        ]
+
+        existing_ordered = [
+            g for g in ordered
+            if g in gov_map
+        ]
+
+        extras = sorted([
+            g for g in gov_map.keys()
+            if g not in existing_ordered
+        ])
+
+        return existing_ordered + extras
+
+    return sorted(gov_map.keys())
+
+
+def split_big_gouvernorat_if_needed(colis_gov, vehicle_capacity):
+    colis_gov = sorted(
+        colis_gov,
+        key=lambda c: (
+            c.get("latitude") or 0,
+            c.get("longitude") or 0,
+            c["id"],
+        )
+    )
+
+    zones = []
+    current_zone = []
+    current_weight = 0
+
+    for c in colis_gov:
+        poids = float(c.get("poids") or 0)
+
+        should_split = (
+            current_zone
+            and (
+                len(current_zone) >= MAX_COLIS_PAR_TOURNEE
+                or current_weight + poids > vehicle_capacity
+            )
+        )
+
+        if should_split:
+            zones.append(current_zone)
+            current_zone = []
+            current_weight = 0
+
+        current_zone.append(c)
+        current_weight += poids
+
+    if current_zone:
+        zones.append(current_zone)
+
+    return zones
 
 def creer_zones_par_adresses(colis, vehicle_capacity):
     colis_valides = [
@@ -801,48 +871,59 @@ def creer_zones_par_adresses(colis, vehicle_capacity):
         )
         return []
 
-    distance_matrix = []
+    # 1. group by preferred group ثم gouvernorat
+    groups = {}
 
-    for a in colis_valides:
-        row = []
+    for c in colis_valides:
+        gouvernorat = clean_region(c.get("gouvernorat"))
 
-        for b in colis_valides:
-            row.append(
-                haversine_distance_km(
-                    a["latitude"],
-                    a["longitude"],
-                    b["latitude"],
-                    b["longitude"],
-                )
-            )
+        group_key = get_preferred_group_key(gouvernorat)
 
-        distance_matrix.append(row)
+        if group_key not in groups:
+            groups[group_key] = {}
 
-    distance_matrix = np.array(distance_matrix)
+        if gouvernorat not in groups[group_key]:
+            groups[group_key][gouvernorat] = []
 
-    model = create_agglomerative_model(MAX_CLUSTER_DISTANCE_KM)
-    labels = model.fit_predict(distance_matrix)
-
-    clusters = {}
-
-    for colis_item, label in zip(colis_valides, labels):
-        label = int(label)
-        clusters.setdefault(label, []).append(colis_item)
+        groups[group_key][gouvernorat].append(c)
 
     zones = []
 
-    for cluster_colis in clusters.values():
-        zones.extend(
-            split_zone_by_rules(
-                cluster_colis,
-                vehicle_capacity,
-            )
+    # 2. داخل كل preferred group، نبني tournées
+    for group_key, gov_map in groups.items():
+        ordered_govs = get_ordered_gouvernorats_for_group(
+            group_key,
+            gov_map,
         )
 
-    zones = merge_small_zones(zones, vehicle_capacity)
-    zones = merge_same_gouvernorat_zones(zones, vehicle_capacity)
-    zones = merge_preferred_governorate_groups(zones, vehicle_capacity)
-    zones = merge_small_zones(zones, vehicle_capacity)
+        units = []
+
+        # كل gouvernorat يبقى وحدة واحدة، إلا إذا يفوت max/capacité
+        for gov in ordered_govs:
+            gov_units = split_big_gouvernorat_if_needed(
+                gov_map[gov],
+                vehicle_capacity,
+            )
+
+            units.extend(gov_units)
+
+        current_zone = []
+
+        for unit in units:
+            if not current_zone:
+                current_zone = list(unit)
+                continue
+
+            if can_merge_zones(current_zone, unit, vehicle_capacity):
+                current_zone.extend(unit)
+            else:
+                if len(current_zone) >= MIN_COLIS_POUR_TOURNEE:
+                    zones.append(current_zone)
+
+                current_zone = list(unit)
+
+        if current_zone and len(current_zone) >= MIN_COLIS_POUR_TOURNEE:
+            zones.append(current_zone)
 
     zones = [
         z for z in zones

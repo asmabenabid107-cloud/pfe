@@ -21,12 +21,42 @@ def require_admin(current_user: User = Depends(get_current_user)):
 
 @router.get("", response_model=list[ColisResponse])
 def get_all_colis(db: Session = Depends(get_db), admin: User = Depends(require_admin)):
-    return (
+    colis_list = (
         db.query(Colis)
         .options(selectinload(Colis.history))
-        .order_by(Colis.created_at.desc())
+        .order_by(Colis.id.desc())
         .all()
     )
+
+    now = datetime.utcnow()
+    result = []
+
+    for c in colis_list:
+        item = {
+            column.name: getattr(c, column.name)
+            for column in Colis.__table__.columns
+        }
+
+        # ColisResponse يستنى ouvrir_colis = "oui" ولا "non"
+        ouvrir_value = getattr(c, "ouvrir_colis", None)
+
+        if ouvrir_value in [True, "true", "True", "oui", "1", 1]:
+            item["ouvrir_colis"] = "oui"
+        else:
+            item["ouvrir_colis"] = "non"
+
+        # ColisResponse يستنى datetime، ما ينجمش يقبل NULL
+        item["created_at"] = c.created_at or now
+
+        if "updated_at" in item:
+            item["updated_at"] = c.updated_at or item["created_at"]
+
+        # كان schema فيه history
+        item["history"] = c.history or []
+
+        result.append(item)
+
+    return result
 
 
 @router.post("/{colis_id}/approve")
